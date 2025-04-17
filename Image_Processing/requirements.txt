@@ -1,10 +1,10 @@
-opencv-python==4.11.0.86
-pandas==2.2.3
-requests==2.32.3
+opencv-python
+pandas
+requests
 torch==1.12.1+cu113
 torchaudio==0.12.1+cu113
-torchprofile==0.0.4
-torchtnt==0.2.4
+torchprofile
+torchtnt
 torchvision==0.13.1+cu113
-tqdm==4.67.1
-ultralytics==8.3.109
+tqdm
+ultralytics
