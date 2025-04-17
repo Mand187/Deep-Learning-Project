@@ -125,7 +125,7 @@ def save_results_to_csv(result_tuple, output_dir):
 # --- Main Execution Block ---
 if __name__ == "__main__":
     # --- Configuration ---
-    video_dir = Path('dataset/videos')  # Use pathlib for easier path handling
+    video_dir = Path('videos/trimmed')  # Use pathlib for easier path handling
     output_dir = Path('output_csvs')
     model_path = 'yolo12l.pt' # Define model path once
     num_gpus_to_use = 4       # Explicitly set to use 4 GPUs
