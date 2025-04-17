@@ -7,6 +7,8 @@ import multiprocessing as mp
 from pathlib import Path
 import time # Optional: for timing
 from tqdm import tqdm # Import tqdm
+import signal # Import signal module
+import sys # Import sys module
 
 # Function to be executed by each worker process
 def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
@@ -122,6 +124,21 @@ def save_results_to_csv(result_tuple, output_dir):
         print(f"MainProcess: Error saving CSV for {filename_stem}: {e}")
 
 
+# --- Global Pool Variable ---
+# Define pool globally or make it accessible to the handler
+pool = None
+
+# --- Signal Handler ---
+def signal_handler(sig, frame):
+    """Handles SIGINT and SIGTSTP signals to terminate the pool."""
+    print(f'\nSignal {sig} received, terminating worker processes...')
+    if pool:
+        pool.terminate() # Forcefully terminate worker processes
+        pool.join()      # Wait for termination to complete
+    print("Processes terminated.")
+    sys.exit(1) # Exit the main script
+
+
 # --- Main Execution Block ---
 if __name__ == "__main__":
     # --- Configuration ---
@@ -149,50 +166,83 @@ if __name__ == "__main__":
         exit()
     print(f"Found {len(video_files)} videos to process using {num_gpus_to_use} GPUs.")
 
+    # --- Register Signal Handlers ---
+    signal.signal(signal.SIGINT, signal_handler)  # Handle Ctrl+C
+    signal.signal(signal.SIGTSTP, signal_handler) # Handle Ctrl+Z
+
     # --- Multiprocessing Setup ---
     # IMPORTANT: Use 'spawn' start method for CUDA compatibility with multiprocessing
     try:
-        mp.set_start_method('spawn', force=True)
-        print("Set multiprocessing start method to 'spawn'.")
+        # Check if start method is already set to spawn, avoid error if run multiple times in interactive session
+        if mp.get_start_method(allow_none=True) != 'spawn':
+            mp.set_start_method('spawn', force=True)
+            print("Set multiprocessing start method to 'spawn'.")
+        else:
+            print("Multiprocessing start method already set to 'spawn'.")
     except RuntimeError as e:
-        print(f"Warning: Could not set start method to 'spawn': {e}. Using default.")
+         # Handle cases where it might fail (e.g., context already started)
+         current_method = mp.get_start_method(allow_none=True)
+         print(f"Warning: Could not set start method to 'spawn': {e}. Using current method '{current_method}'.")
+
+    try:
+        # Create a pool of worker processes, one for each GPU we intend to use
+        print(f"Creating process pool with size {num_gpus_to_use}")
+        # Assign to the global pool variable so the handler can access it
+        globals()['pool'] = mp.Pool(processes=num_gpus_to_use)
 
 
-    # Create a pool of worker processes, one for each GPU we intend to use
-    print(f"Creating process pool with size {num_gpus_to_use}")
-    pool = mp.Pool(processes=num_gpus_to_use)
+        # --- Distribute Tasks ---
+        tasks = []
+        for i, video_path in enumerate(video_files):
+            gpu_id = i % num_gpus_to_use  # Cycle through GPU IDs 0, 1, 0, 1, ...
+            # Add task arguments for the process_video_on_gpu function
+            tasks.append((video_path, gpu_id, model_path, output_dir))
 
-    # --- Distribute Tasks ---
-    tasks = []
-    for i, video_path in enumerate(video_files):
-        gpu_id = i % num_gpus_to_use  # Cycle through GPU IDs 0, 1, 0, 1, ...
-        # Add task arguments for the process_video_on_gpu function
-        tasks.append((video_path, gpu_id, model_path, output_dir))
+        # Use apply_async to submit all tasks and define the callback for saving
+        async_results = []
+        print("Submitting tasks to process pool...")
+        for task_args in tasks:
+            # Pass the output_dir to the callback using a lambda function
+            res = pool.apply_async(process_video_on_gpu, args=task_args,
+                                   callback=lambda result: save_results_to_csv(result, output_dir))
+            async_results.append(res)
 
-    # Use apply_async to submit all tasks and define the callback for saving
-    async_results = []
-    print("Submitting tasks to process pool...")
-    for task_args in tasks:
-        # Pass the output_dir to the callback using a lambda function
-        res = pool.apply_async(process_video_on_gpu, args=task_args,
-                               callback=lambda result: save_results_to_csv(result, output_dir))
-        async_results.append(res)
+        # --- Wait for Completion & Cleanup ---
+        print("Waiting for all video processing tasks to complete (Press Ctrl+C or Ctrl+Z to interrupt)...")
+        # Wait for all tasks to finish
+        all_done = False
+        while not all_done:
+            all_done = True
+            for res in async_results:
+                if not res.ready():
+                    all_done = False
+                    time.sleep(0.5) # Wait briefly before checking again
+                    break
+            if all_done:
+                 # Retrieve results to catch any exceptions from workers
+                 for i, res in enumerate(async_results):
+                     try:
+                         res.get()
+                     except Exception as e:
+                         # Error already printed in worker or callback, or print here
+                         print(f"\nError observed in result for task {i+1}: {e}")
 
-    # --- Wait for Completion & Cleanup ---
-    print("Waiting for all video processing tasks to complete...")
-    # Wait for all tasks to finish
-    for i, res in enumerate(async_results):
-        try:
-            res.get() # Wait for this specific result (optional, good for catching errors early)
-            # print(f"Task {i+1}/{len(tasks)} completed.") # Less verbose with tqdm
-        except Exception as e:
-            print(f"\nError retrieving result for task {i+1}: {e}") # Add newline to avoid tqdm overlap
 
+        print("\nAll tasks seem complete.")
 
-    pool.close()  # Prevent submitting more tasks
-    pool.join()   # Wait for all worker processes to terminate
+    except Exception as e:
+        print(f"\nAn error occurred in the main process: {e}")
+    finally:
+        # --- Ensure Pool Cleanup ---
+        if pool:
+            print("Closing pool...")
+            # Check if pool was already terminated by signal handler
+            # Terminate might be safer than close/join if interrupted uncleanly
+            pool.terminate()
+            pool.join()
+            print("Pool closed.")
 
-    # --- Finalization ---
-    end_time = time.time() # Optional: End timer
-    print(f"\nAll videos processed. Total time: {end_time - start_time:.2f} seconds.") # Add newline
-    print(f"CSV files saved in: {output_dir}")
+        # --- Finalization ---
+        end_time = time.time() # Optional: End timer
+        print(f"\nProcessing finished or interrupted. Total time: {end_time - start_time:.2f} seconds.")
+        print(f"CSV files saved in: {output_dir}")
