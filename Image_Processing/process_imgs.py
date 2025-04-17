@@ -9,6 +9,30 @@ import time # Optional: for timing
 from tqdm import tqdm # Import tqdm
 import signal # Import signal module
 import sys # Import sys module
+import concurrent.futures # Import ThreadPoolExecutor
+import threading # For potential Lock if needed, though futures might suffice
+
+# --- Helper function for CPU-bound result processing ---
+def _extract_frame_data(frame, result, model_names):
+    """Extracts detection data for a single frame result (CPU-bound)."""
+    frame_data = []
+    if result.boxes.id is not None:
+        try:
+            # Perform CPU-bound operations here
+            ids = result.boxes.id.int().cpu().tolist()
+            classes = result.boxes.cls.int().cpu().tolist()
+            boxes = result.boxes.xywh.cpu().tolist()
+            # confs = result.boxes.conf.cpu().tolist() # If needed
+
+            for v_class, v_id, xywh in zip(classes, ids, boxes):
+                x, y, w, h = xywh
+                label = model_names[v_class] # Get class name
+                frame_data.append([frame, v_id, label, int(x), int(y), int(w), int(h)])
+        except Exception as e:
+            # Log error specific to this frame extraction
+            print(f"Error extracting data for frame {frame}: {e}")
+            # Decide if you want to return partial data or empty
+    return frame_data
 
 # Function to be executed by each worker process
 def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
@@ -16,126 +40,145 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
     Processes a single video file on a specified GPU and returns tracking data.
     Includes a tqdm progress bar for frame processing.
     Sets CUDA_VISIBLE_DEVICES for process isolation.
+    Uses a ThreadPoolExecutor for non-blocking result extraction.
     """
+    # --- Local ThreadPoolExecutor for result processing ---
+    # Adjust max_workers based on CPU cores available to the process
+    # With 40 total cores and 4 processes, each process might utilize ~10 cores.
+    # Start with a number like 8, as the main process thread also needs CPU.
+    # The optimal value depends on how much the GIL is released during extraction and requires testing.
+    result_extractor_executor = concurrent.futures.ThreadPoolExecutor(max_workers=8) # Increased from 4
+    extraction_futures = []
+    final_results_data = [] # Renamed to avoid confusion
+
     try:
         # --- Enforce GPU Affinity ---
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-        # Now, the assigned GPU will appear as 'cuda:0' to this process
         device = 'cuda:0'
-        # --- ---
+        # ---
 
         process_name = mp.current_process().name
-        # print(f"{process_name}: Assigning to visible GPU {gpu_id} (as {device}) for video {video_path.name}") # Adjusted print
-
-        # Load the model inside the process onto the assigned GPU
-        # Model loading should happen *after* CUDA_VISIBLE_DEVICES is set
         model = YOLO(model_path).to(device)
-
-        results_data = [] # Use a list to collect data efficiently
+        model_names = model.names # Get model names once
 
         # --- Get total frames for tqdm ---
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
              print(f"Error opening video file: {video_path}")
-             return video_path.stem, None # Handle error if video can't be opened
+             # Ensure executor is shut down even on early exit
+             result_extractor_executor.shutdown(wait=False)
+             return video_path.stem, None
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap.release()
-        # --- ---
+        # ---
 
         # Run tracking
         results = model.track(
             source=str(video_path),
             show=False,
             save=False,
-            half=True,        # Use half-precision if supported and desired
+            half=True,
             stream=True,
-            device=device,    # Explicitly specify the device for tracking (now 'cuda:0' for this process)
-            verbose=False,    # Reduce console output from YOLO per frame
-            batch=500          # Add batch size argument
+            device=device,
+            verbose=False,
+            batch=512
         )
 
-        # --- Process results stream with tqdm ---
-        # Use position=gpu_id to try and stack bars vertically (use original gpu_id for positioning)
-        # leave=False cleans up the bar after completion
-        # desc provides context
+        # --- Process results stream, submitting extraction to threads ---
         progress_bar = tqdm(
             enumerate(results),
             total=total_frames,
-            desc=f"GPU {gpu_id} | {video_path.name}", # Display original GPU ID
-            position=gpu_id, # Assign position based on original GPU ID
-            leave=False      # Remove bar once done
+            desc=f"GPU {gpu_id} | {video_path.name}",
+            position=gpu_id,
+            leave=False
         )
         for frame, result in progress_bar:
-        # --- ---
-            # Check if tracking IDs are present in the current frame's results
-            if result.boxes.id is not None:
-                # Extract data, converting tensors to CPU lists immediately
-                ids = result.boxes.id.int().cpu().tolist()
-                classes = result.boxes.cls.int().cpu().tolist()
-                boxes = result.boxes.xywh.cpu().tolist()
-                # confs = result.boxes.conf.cpu().tolist() # Uncomment if confidence is needed
+            # Submit the CPU-bound work to the executor
+            future = result_extractor_executor.submit(_extract_frame_data, frame, result, model_names)
+            extraction_futures.append(future)
 
-                for v_class, v_id, xywh in zip(classes, ids, boxes):
-                    x, y, w, h = xywh
-                    label = model.names[v_class] # Get class name from model
-                    # Append data as a list
-                    results_data.append([frame, v_id, label, int(x), int(y), int(w), int(h)])
+        # --- Wait for all extraction tasks to complete and aggregate results ---
+        print(f"{process_name}: GPU processing done for {video_path.name}. Aggregating results...")
+        # Add a progress bar for aggregation if many frames/futures
+        aggregation_bar = tqdm(concurrent.futures.as_completed(extraction_futures), total=len(extraction_futures), desc=f"Aggregating GPU {gpu_id}", position=gpu_id, leave=False)
+        for future in aggregation_bar:
+            try:
+                frame_data = future.result()
+                if frame_data: # Only extend if data was extracted
+                    final_results_data.extend(frame_data)
+            except Exception as e:
+                print(f"Error retrieving result from extraction future: {e}")
 
-        # print(f"{process_name}: Finished processing {video_path.name} on GPU {gpu_id}. Found {len(results_data)} detections.") # Less verbose with tqdm
-        # Return the original video filename stem and the collected data
-        return video_path.stem, results_data
+        # Sort results by frame number if order might be slightly off due to threading
+        # (though as_completed yields in completion order, not submission order)
+        # If strict frame order is critical, collect results in a dict keyed by frame
+        # or sort at the end. Sorting is safer.
+        final_results_data.sort(key=lambda row: row[0]) # Sort by frame number
+
+        print(f"{process_name}: Finished processing {video_path.name} on GPU {gpu_id}. Found {len(final_results_data)} detections.")
+        return video_path.stem, final_results_data
+
     except Exception as e:
-        # Ensure CUDA_VISIBLE_DEVICES is printed in case of error for debugging
         cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "Not Set")
         print(f"Error in {process_name} (Visible GPU(s): {cuda_visible}) processing {video_path.name} on assigned GPU {gpu_id}: {e}")
-        # Return filename stem and None to indicate failure
         return video_path.stem, None
     finally:
-        # Optional: Clean up env var if needed, though process exit usually handles this.
-        # if "CUDA_VISIBLE_DEVICES" in os.environ:
-        #     del os.environ["CUDA_VISIBLE_DEVICES"]
+        # --- Ensure local executor is shut down ---
+        result_extractor_executor.shutdown(wait=True) # Wait for threads here
+        # ... existing finally block content ...
         pass
 
-# Function to save results to CSV (runs in the main process via callback)
-def save_results_to_csv(result_tuple, output_dir):
-    """
-    Callback function to save the processed data to a CSV file.
-    """
-    filename_stem, data = result_tuple
-
-    # Handle cases where processing failed or yielded no data
+# --- Internal Saving Function (runs in thread pool) ---
+def _actual_save_to_csv(filename_stem, data, output_dir):
+    """Performs the actual DataFrame creation and saving."""
     if data is None:
-        print(f"Skipping CSV generation for {filename_stem} due to processing error.")
+        # print(f"ThreadSaver: Skipping CSV generation for {filename_stem} due to processing error.") # Optional: more specific logging
         return
     if not data:
-        print(f"No tracking data generated for {filename_stem}. Skipping CSV.")
+        # print(f"ThreadSaver: No tracking data generated for {filename_stem}. Skipping CSV.") # Optional: more specific logging
         return
 
     try:
-        # Create DataFrame from the collected list of lists
         df = pd.DataFrame(data, columns=['Frame', 'ID', 'Class', 'X', 'Y', 'Width', 'Height'])
-        # Define output CSV path
         csv_filename = f"{filename_stem}_detections.csv"
         csv_path = output_dir / csv_filename
-        # Save to CSV
         df.to_csv(csv_path, index=False)
-        print(f"MainProcess: Saved results for {filename_stem} to {csv_path}")
+        # print(f"ThreadSaver: Saved results for {filename_stem} to {csv_path}") # Optional: more specific logging
     except Exception as e:
-        print(f"MainProcess: Error saving CSV for {filename_stem}: {e}")
+        print(f"ThreadSaver: Error saving CSV for {filename_stem}: {e}")
+
+
+# --- Modified Callback Function (Submits task to thread pool) ---
+# Keep track of submitted save futures if needed for shutdown confirmation
+save_futures = []
+def save_results_to_csv(result_tuple, output_dir, executor):
+    """
+    Callback function to submit the saving task to a ThreadPoolExecutor.
+    """
+    filename_stem, data = result_tuple
+    # Submit the actual saving work to the executor
+    future = executor.submit(_actual_save_to_csv, filename_stem, data, output_dir)
+    save_futures.append(future) # Optional: track futures
 
 
 # --- Global Pool Variable ---
 # Define pool globally or make it accessible to the handler
 pool = None
+save_executor = None # Global variable for the save executor
 
 # --- Signal Handler ---
 def signal_handler(sig, frame):
-    """Handles SIGINT and SIGTSTP signals to terminate the pool."""
-    print(f'\nSignal {sig} received, terminating worker processes...')
+    """Handles SIGINT and SIGTSTP signals to terminate the pool and executor."""
+    print(f'\nSignal {sig} received, terminating processes and threads...')
+    if save_executor:
+        print("Shutting down save executor (no new tasks)...")
+        # Shutdown without waiting indefinitely, cancel pending if possible
+        save_executor.shutdown(wait=False, cancel_futures=True)
     if pool:
+        print("Terminating worker pool...")
         pool.terminate() # Forcefully terminate worker processes
         pool.join()      # Wait for termination to complete
-    print("Processes terminated.")
+    print("Processes and threads terminated.")
     sys.exit(1) # Exit the main script
 
 
@@ -190,6 +233,11 @@ if __name__ == "__main__":
         # Assign to the global pool variable so the handler can access it
         globals()['pool'] = mp.Pool(processes=num_gpus_to_use)
 
+        # Create a ThreadPoolExecutor for saving CSV files
+        # Adjust max_workers based on expected I/O load vs CPU cores
+        save_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+        globals()['save_executor'] = save_executor # Make accessible to signal handler
+
 
         # --- Distribute Tasks ---
         tasks = []
@@ -202,9 +250,10 @@ if __name__ == "__main__":
         async_results = []
         print("Submitting tasks to process pool...")
         for task_args in tasks:
-            # Pass the output_dir to the callback using a lambda function
+            # Use functools.partial or lambda to pass executor to callback
+            callback_with_executor = lambda result: save_results_to_csv(result, output_dir, save_executor)
             res = pool.apply_async(process_video_on_gpu, args=task_args,
-                                   callback=lambda result: save_results_to_csv(result, output_dir))
+                                   callback=callback_with_executor)
             async_results.append(res)
 
         # --- Wait for Completion & Cleanup ---
@@ -233,14 +282,19 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\nAn error occurred in the main process: {e}")
     finally:
-        # --- Ensure Pool Cleanup ---
+        # --- Ensure Pool and Executor Cleanup ---
         if pool:
-            print("Closing pool...")
-            # Check if pool was already terminated by signal handler
-            # Terminate might be safer than close/join if interrupted uncleanly
-            pool.terminate()
-            pool.join()
-            print("Pool closed.")
+            print("Closing worker pool...")
+            pool.close() # Allow workers to finish current task
+            pool.join()  # Wait for workers to exit
+            print("Worker pool closed.")
+
+        if save_executor:
+            print("Shutting down save executor (waiting for saves to complete)...")
+            # Wait for all submitted save tasks to finish
+            concurrent.futures.wait(save_futures) # Wait for tracked futures
+            save_executor.shutdown(wait=True)
+            print("Save executor shut down.")
 
         # --- Finalization ---
         end_time = time.time() # Optional: End timer
