@@ -81,7 +81,7 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
             stream=True,
             device=device,
             verbose=False,
-            batch=512
+            batch=128
         )
 
         # --- Process results stream, submitting extraction to threads ---
