@@ -49,7 +49,7 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
             stream=True,
             device=device,    # Explicitly specify the device for tracking (now 'cuda:0' for this process)
             verbose=False,    # Reduce console output from YOLO per frame
-            batch=64          # Add batch size argument
+            batch=500          # Add batch size argument
         )
 
         # --- Process results stream with tqdm ---
