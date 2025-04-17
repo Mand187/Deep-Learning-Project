@@ -1,26 +1,44 @@
 import torch
 from ultralytics import YOLO
 import pandas as pd
-import os
+import os # Make sure os is imported
 import cv2
 import multiprocessing as mp
 from pathlib import Path
 import time # Optional: for timing
+from tqdm import tqdm # Import tqdm
 
 # Function to be executed by each worker process
 def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
     """
     Processes a single video file on a specified GPU and returns tracking data.
+    Includes a tqdm progress bar for frame processing.
+    Sets CUDA_VISIBLE_DEVICES for process isolation.
     """
     try:
+        # --- Enforce GPU Affinity ---
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        # Now, the assigned GPU will appear as 'cuda:0' to this process
+        device = 'cuda:0'
+        # --- ---
+
         process_name = mp.current_process().name
-        print(f"{process_name}: Assigning to GPU {gpu_id} for video {video_path.name}")
-        device = f'cuda:{gpu_id}'
+        # print(f"{process_name}: Assigning to visible GPU {gpu_id} (as {device}) for video {video_path.name}") # Adjusted print
 
         # Load the model inside the process onto the assigned GPU
+        # Model loading should happen *after* CUDA_VISIBLE_DEVICES is set
         model = YOLO(model_path).to(device)
 
         results_data = [] # Use a list to collect data efficiently
+
+        # --- Get total frames for tqdm ---
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+             print(f"Error opening video file: {video_path}")
+             return video_path.stem, None # Handle error if video can't be opened
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        # --- ---
 
         # Run tracking
         results = model.track(
@@ -29,12 +47,24 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
             save=False,
             half=True,        # Use half-precision if supported and desired
             stream=True,
-            device=device,    # Explicitly specify the device for tracking
-            verbose=False     # Reduce console output from YOLO per frame
+            device=device,    # Explicitly specify the device for tracking (now 'cuda:0' for this process)
+            verbose=False,    # Reduce console output from YOLO per frame
+            batch=64          # Add batch size argument
         )
 
-        # Process results stream
-        for frame, result in enumerate(results):
+        # --- Process results stream with tqdm ---
+        # Use position=gpu_id to try and stack bars vertically (use original gpu_id for positioning)
+        # leave=False cleans up the bar after completion
+        # desc provides context
+        progress_bar = tqdm(
+            enumerate(results),
+            total=total_frames,
+            desc=f"GPU {gpu_id} | {video_path.name}", # Display original GPU ID
+            position=gpu_id, # Assign position based on original GPU ID
+            leave=False      # Remove bar once done
+        )
+        for frame, result in progress_bar:
+        # --- ---
             # Check if tracking IDs are present in the current frame's results
             if result.boxes.id is not None:
                 # Extract data, converting tensors to CPU lists immediately
@@ -49,13 +79,20 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
                     # Append data as a list
                     results_data.append([frame, v_id, label, int(x), int(y), int(w), int(h)])
 
-        print(f"{process_name}: Finished processing {video_path.name} on GPU {gpu_id}. Found {len(results_data)} detections.")
+        # print(f"{process_name}: Finished processing {video_path.name} on GPU {gpu_id}. Found {len(results_data)} detections.") # Less verbose with tqdm
         # Return the original video filename stem and the collected data
         return video_path.stem, results_data
     except Exception as e:
-        print(f"Error in {process_name} processing {video_path.name} on GPU {gpu_id}: {e}")
+        # Ensure CUDA_VISIBLE_DEVICES is printed in case of error for debugging
+        cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "Not Set")
+        print(f"Error in {process_name} (Visible GPU(s): {cuda_visible}) processing {video_path.name} on assigned GPU {gpu_id}: {e}")
         # Return filename stem and None to indicate failure
         return video_path.stem, None
+    finally:
+        # Optional: Clean up env var if needed, though process exit usually handles this.
+        # if "CUDA_VISIBLE_DEVICES" in os.environ:
+        #     del os.environ["CUDA_VISIBLE_DEVICES"]
+        pass
 
 # Function to save results to CSV (runs in the main process via callback)
 def save_results_to_csv(result_tuple, output_dir):
@@ -91,7 +128,7 @@ if __name__ == "__main__":
     video_dir = Path('dataset/videos')  # Use pathlib for easier path handling
     output_dir = Path('output_csvs')
     model_path = 'yolo12l.pt' # Define model path once
-    num_gpus_to_use = 2       # Explicitly set to use 2 GPUs
+    num_gpus_to_use = 4       # Explicitly set to use 4 GPUs
 
     # --- Preparations ---
     start_time = time.time() # Optional: Start timer
@@ -147,9 +184,9 @@ if __name__ == "__main__":
     for i, res in enumerate(async_results):
         try:
             res.get() # Wait for this specific result (optional, good for catching errors early)
-            # print(f"Task {i+1}/{len(tasks)} completed.")
+            # print(f"Task {i+1}/{len(tasks)} completed.") # Less verbose with tqdm
         except Exception as e:
-            print(f"Error retrieving result for task {i+1}: {e}")
+            print(f"\nError retrieving result for task {i+1}: {e}") # Add newline to avoid tqdm overlap
 
 
     pool.close()  # Prevent submitting more tasks
@@ -157,5 +194,5 @@ if __name__ == "__main__":
 
     # --- Finalization ---
     end_time = time.time() # Optional: End timer
-    print(f"All videos processed. Total time: {end_time - start_time:.2f} seconds.")
+    print(f"\nAll videos processed. Total time: {end_time - start_time:.2f} seconds.") # Add newline
     print(f"CSV files saved in: {output_dir}")

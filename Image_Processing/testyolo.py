@@ -12,11 +12,12 @@ df = pd.DataFrame(columns=['Frame', 'ID', 'Class', 'X', 'Y', 'Width', 'Height'])
 model = YOLO('yolo12l.pt').to('cuda', non_blocking=True)  # load a model from file
 
 results = model.track(
-    source = 'dataset/cars-1s.mp4',
+    source = 'dataset/cars-10s.mp4',
     show=False,
     save=False,
     half=True,
     stream=True,
+    batch=32,
 )
 
 
