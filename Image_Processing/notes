@@ -1,0 +1,11 @@
+# ReID
+For each frame
+- Extract bounding boxes with detr
+- For each vehivle in frame
+  - Generate feature map with verid net
+  - Store fm in database
+  - Compare fm of with each vehicle in previous frame
+  - If any vehicle in previous frame is current vehicle, set current vehicle's id to that vehicle id
+  - Else create new vehicle id
+  - Add to dataset: vehicle id, frame, xy coord
+  - Add vehicle id to fm entry in database
