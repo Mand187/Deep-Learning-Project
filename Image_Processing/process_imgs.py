@@ -4,7 +4,8 @@ import pandas as pd
 import os # Make sure os is imported
 # import tqdm # Removed tqdm import here, will add specific import below
 from tqdm import tqdm # Import tqdm
-from decord import VideoReader # Import VideoReader
+# from decord import VideoReader # Import VideoReader # Removed decord
+import cv2 # Import OpenCV
 import multiprocessing as mp
 from pathlib import Path
 import time # Optional: for timing
@@ -33,14 +34,24 @@ def gpu_process_video(video_path, gpu_id, model_path):
         device = 'cuda:0'
         # ---
 
-        # --- Get total frames using decord ---
+        # --- Get total frames using cv2 ---
+        total_frames = None # Initialize
+        cap = None # Initialize cap outside try
         try:
-            vr = VideoReader(str(video_path), ctx=torch.device(device).type) # Use appropriate context if needed, cpu might be safer
-            total_frames = len(vr)
-            del vr # Release video reader
+            cap = cv2.VideoCapture(str(video_path))
+            if not cap.isOpened():
+                print(f"Warning: Could not open video {video_path.name} using OpenCV.")
+            else:
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                if total_frames <= 0: # Check if frame count is valid
+                    print(f"Warning: OpenCV reported 0 or negative frames for {video_path.name}. Progress bar total might be inaccurate.")
+                    total_frames = None # Reset to None if invalid
         except Exception as e:
-            print(f"Warning: Could not get frame count for {video_path.name} using decord: {e}. Progress bar total might be inaccurate.")
+            print(f"Warning: Could not get frame count for {video_path.name} using OpenCV: {e}. Progress bar total might be inaccurate.")
             total_frames = None # Indicate unknown total
+        finally:
+            if cap is not None and cap.isOpened():
+                cap.release() # Ensure capture is released
         # ---
 
         model = YOLO(model_path).to(device)
