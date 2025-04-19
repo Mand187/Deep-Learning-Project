@@ -68,7 +68,7 @@ def gpu_process_video(video_path, gpu_id, model_path):
             stream=True, # Process frame by frame with a generator
             device=device,
             verbose=False,
-            batch=128 # Adjust as needed
+            batch=512 # Adjust as needed
         )
 
         # --- Iterate with tqdm progress bar ---
