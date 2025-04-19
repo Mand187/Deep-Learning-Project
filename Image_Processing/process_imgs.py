@@ -104,8 +104,8 @@ def gpu_process_video(video_path, model_path, gpu_id): # Added gpu_id back
             half=True,
             stream=True,
             device=device,
-            verbose=False
-            # batch=512 # Keep removed
+            verbose=False,
+            batch=128 # Keep removed
         )
 
         # --- Iterate with tqdm progress bar ---
@@ -113,7 +113,7 @@ def gpu_process_video(video_path, model_path, gpu_id): # Added gpu_id back
             iterable=results_generator,
             total=total_frames,
             desc=f"GPU {gpu_id}: {video_path.stem[:20]:<20}",
-            position=gpu_id, # Position based on assigned gpu_id
+            #position=gpu_id, # Position based on assigned gpu_id
             leave=False,
             unit="frame",
             ncols=100
