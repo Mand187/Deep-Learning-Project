@@ -143,12 +143,19 @@ def _extract_frame_data(frame, result, model_names):
         # Decide if you want to return partial data or empty
     return frame_data
 
+# --- Helper function for mapping extraction tasks ---
+def _extraction_helper(args):
+    """Unpacks arguments for _extract_frame_data for use with executor.map."""
+    frame_index, result, model_names = args
+    # Call the original extraction function
+    return _extract_frame_data(frame_index, result, model_names)
+
 # --- CPU Task Function ---
 def cpu_process_and_save(gpu_result_tuple, output_dir):
     """
-    Takes results from gpu_process_video, extracts data using a ThreadPoolExecutor
-    with progress bar, creates DataFrame, and saves CSV.
-    Runs in a ThreadPoolExecutor in the main process.
+    Takes results from gpu_process_video, extracts data in parallel using
+    a local ThreadPoolExecutor, creates DataFrame, and saves CSV.
+    Runs in the main cpu_executor.
     """
     if gpu_result_tuple is None:
         print("CPU Task: Received None from GPU task, skipping.")
@@ -157,59 +164,55 @@ def cpu_process_and_save(gpu_result_tuple, output_dir):
     video_stem, results_list, model_names = gpu_result_tuple
     print(f"CPU Task: Starting processing for {video_stem}")
 
-    # --- Local ThreadPoolExecutor for result extraction ---
-    # Adjust max_workers based on CPU cores and task nature (IO bound vs CPU bound)
-    extraction_executor = concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() // 2 or 1) # Example: Use half the cores
-    extraction_futures = []
+    # --- Use a local ThreadPoolExecutor for frame extraction parallelism ---
+    # Define number of workers for frame extraction within this task
+    extraction_workers = 8 # Or adjust based on testing/heuristics
     final_results_data = []
 
     try:
-        # --- Submit CPU-bound extraction tasks ---
-        start_cpu_submit_time = time.time()
+        start_cpu_extract_time = time.time()
         num_result_frames = len(results_list)
         if num_result_frames == 0:
             print(f"CPU Task: No results found for {video_stem}.")
-            extraction_executor.shutdown(wait=False) # No tasks submitted
             return True # Success (processed but no detections)
 
-        for frame, result in enumerate(results_list):
-            future = extraction_executor.submit(_extract_frame_data, frame, result, model_names)
-            extraction_futures.append(future)
-        submit_duration = time.time() - start_cpu_submit_time
-        print(f"CPU Task ({video_stem}): Submitted {len(extraction_futures)} frames for extraction in {submit_duration:.2f}s. Aggregating...")
+        # --- Prepare arguments for mapping ---
+        # We pass the index, the result object, and model_names for each frame
+        map_args = [(idx, res, model_names) for idx, res in enumerate(results_list)]
 
-        # --- Wait for extraction and aggregate results with tqdm ---
-        start_aggregate_time = time.time()
-        # Wrap as_completed with tqdm for progress
-        cpu_progress_bar = tqdm(
-            concurrent.futures.as_completed(extraction_futures),
-            total=len(extraction_futures),
-            desc=f"CPU: {video_stem[:25]:<25}", # Shortened description
-            unit="frame",
-            ncols=100,
-            leave=False # Keep the bar until the function finishes
-        )
-        for future in cpu_progress_bar:
-            try:
-                frame_data = future.result()
-                if frame_data:
-                    final_results_data.extend(frame_data)
-            except Exception as e:
-                print(f"CPU Task ({video_stem}): Error retrieving result from extraction future: {e}")
-        aggregate_duration = time.time() - start_aggregate_time
-        # print(f"\r{' ' * 100}\r", end='') # Optional: Clear line
-        print(f"CPU Task ({video_stem}): Aggregation done in {aggregate_duration:.2f}s.")
+        print(f"CPU Task ({video_stem}): Starting parallel extraction for {num_result_frames} frames using {extraction_workers} workers...")
 
-        # --- Sort, Create DataFrame, and Save CSV ---
+        # --- Parallelize extraction using the local executor and map ---
+        with concurrent.futures.ThreadPoolExecutor(max_workers=extraction_workers) as executor:
+            # executor.map returns an iterator. We consume it into a list.
+            # Each item in results_iterator will be the list returned by _extract_frame_data
+            results_iterator = executor.map(_extraction_helper, map_args)
+
+            # --- Flatten the list of lists efficiently --- 
+            # tqdm can be wrapped around the iterator for progress
+            extraction_progress = tqdm(
+                results_iterator,
+                total=num_result_frames,
+                desc=f"CPU Extract: {video_stem[:20]:<20}",
+                unit="frame",
+                ncols=100,
+                leave=False
+            )
+            final_results_data = [row for frame_rows in extraction_progress if frame_rows for row in frame_rows]
+            # ---------------------------------------------
+
+        extract_duration = time.time() - start_cpu_extract_time
+        print(f"CPU Task ({video_stem}): Parallel extraction done in {extract_duration:.2f}s.")
+
+        # --- Sort, Create DataFrame, and Save CSV (remains the same) ---
         if not final_results_data:
             print(f"CPU Task ({video_stem}): No detections found after extraction.")
-            extraction_executor.shutdown(wait=True) # Ensure shutdown even if no data
             return True # Success
 
         start_save_time = time.time()
         try:
+            # Sorting might be slightly more expensive now, but necessary
             final_results_data.sort(key=lambda row: row[0])
-            # Update DataFrame columns to include 'Confidence'
             df = pd.DataFrame(final_results_data, columns=['Frame', 'ID', 'Class', 'Confidence', 'X', 'Y', 'Width', 'Height'])
             csv_filename = f"{video_stem}_detections.csv"
             csv_path = output_dir / csv_filename
@@ -229,9 +232,7 @@ def cpu_process_and_save(gpu_result_tuple, output_dir):
         traceback.print_exc()
         return False # Failure
     finally:
-        # --- Ensure local extraction executor is shut down ---
-        # Wait=True ensures all submitted tasks complete before moving on
-        extraction_executor.shutdown(wait=True)
+        # Local executor is managed by the 'with' statement
         print(f"CPU Task: Finished processing for {video_stem}")
 
 
@@ -279,6 +280,9 @@ if __name__ == "__main__":
     output_dir = Path('output_csvs_12x') # Ensure output_dir is defined before callback uses it
     model_path = 'yolo12x.pt'
     num_gpus_to_use = 4
+    total_cores = os.cpu_count() or 40 # Get total cores, default to 40 if detection fails
+    cpu_workers = total_cores - num_gpus_to_use if total_cores > num_gpus_to_use else 1 # Calculate workers for CPU pool
+    print(f"Total Cores: {total_cores}, GPUs: {num_gpus_to_use}, CPU Workers: {cpu_workers}")
 
     # --- Preparations ---
     main_start_time = time.time()
@@ -318,10 +322,9 @@ if __name__ == "__main__":
         print(f"Creating GPU process pool with size {num_gpus_to_use}")
         globals()['gpu_pool'] = mp.Pool(processes=num_gpus_to_use)
 
-        # Create ThreadPoolExecutor for CPU tasks (saving)
-        # With 40 cores, allow more concurrent CPU/IO tasks.
-        # Let's try 16, allowing significant overlap. Tune based on observation.
-        cpu_executor = concurrent.futures.ThreadPoolExecutor(max_workers=16) # Increased from num_gpus_to_use + 2
+        # Create ThreadPoolExecutor for CPU tasks (saving & extraction)
+        # Allocate remaining cores after reserving one per GPU process
+        cpu_executor = concurrent.futures.ThreadPoolExecutor(max_workers=cpu_workers) # ADJUSTED
         globals()['cpu_executor'] = cpu_executor
 
         # --- Distribute GPU Tasks ---
