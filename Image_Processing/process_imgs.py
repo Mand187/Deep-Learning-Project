@@ -102,10 +102,10 @@ def gpu_process_video(video_path, model_path, gpu_id): # Added gpu_id back
             show=False,
             save=False,
             half=True,
-            stream=False,
+            stream=True,
             device=device,
             verbose=False,
-            batch=512 # Keep removed
+            batch=64 # Keep removed
         )
 
         # --- Iterate with tqdm progress bar ---
