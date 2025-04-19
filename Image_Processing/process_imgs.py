@@ -16,53 +16,62 @@ import concurrent.futures # Import ThreadPoolExecutor
 # import threading # No longer needed
 
 
-# --- Global variable for worker process ---
-worker_model = None
-worker_gpu_id = None
-
-# --- Worker Initializer ---
-def init_worker(gpu_id, model_path):
-    """Initializer for each GPU worker process."""
-    global worker_model, worker_gpu_id
-    worker_gpu_id = gpu_id
-    process_name = mp.current_process().name
-    print(f"{process_name} (GPU {gpu_id}): Initializing worker...")
-    try:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-        device = 'cuda:0' # Device index is 0 within the visible set
-        print(f"{process_name} (GPU {gpu_id}): Loading model {model_path} onto {device}...")
-        model = YOLO(model_path).to(device)
-        # Perform a dummy inference to ensure model is fully loaded/warmed up (optional but good practice)
-        # model(torch.zeros(1, 3, 640, 640).to(device))
-        worker_model = model
-        print(f"{process_name} (GPU {gpu_id}): Model loaded successfully.")
-    except Exception as e:
-        print(f"Error initializing worker {process_name} (GPU {gpu_id}): {e}")
-        import traceback
-        traceback.print_exc()
-        # Optionally raise to prevent the pool from starting with failed workers
-        # raise e
+# --- Global dicts for worker process models/GPUs (keyed by PID) ---
+worker_models = {}
+worker_gpu_ids = {}
 
 # --- GPU Task Function ---
-def gpu_process_video(video_path, model_path): # Removed gpu_id from args, get from global
+def gpu_process_video(video_path, model_path, gpu_id): # Added gpu_id back
     """
-    Processes a single video file using the pre-loaded model on the worker's assigned GPU.
+    Processes a single video file using a lazily-loaded model on the assigned GPU.
     Uses stream=True and shows progress with tqdm.
     Returns (video_stem, results_list, model_names) on success, None on failure.
     """
-    global worker_model, worker_gpu_id # Access the pre-loaded model and gpu_id
-    gpu_id = worker_gpu_id # Use the globally set gpu_id for this worker
+    global worker_models, worker_gpu_ids # Access global dicts
     process_name = mp.current_process().name
-    print(f"{process_name} (GPU {gpu_id}): Starting GPU task for {video_path.name}")
+    pid = os.getpid()
+    print(f"{process_name} (PID {pid}, GPU {gpu_id}): Starting GPU task for {video_path.name}")
     results_list = [] # Initialize list to store results
 
-    if worker_model is None:
-        print(f"Error in {process_name} (GPU {gpu_id}): Model not loaded for {video_path.name}. Skipping.")
+    # --- Lazy Model Loading --- 
+    model = None
+    if pid not in worker_models or worker_gpu_ids.get(pid) != gpu_id:
+        print(f"{process_name} (PID {pid}, GPU {gpu_id}): Loading model {model_path}...")
+        try:
+            # Set CUDA_VISIBLE_DEVICES for this specific process
+            # Important: This should ideally happen *before* any CUDA calls if not using initializer
+            # It might be less reliable here than in an initializer, but let's try.
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+            # Even after setting visible devices, torch might still see all if initialized before.
+            # Explicitly setting device index might be needed.
+            # device = f'cuda:{gpu_id}' # Try explicit device ID first
+            device = 'cuda:0' # If CUDA_VISIBLE_DEVICES works, it should be cuda:0
+            print(f"{process_name} (PID {pid}, GPU {gpu_id}): Attempting to load model onto {device} (Visible: {os.environ['CUDA_VISIBLE_DEVICES']})...")
+
+            model = YOLO(model_path).to(device)
+            # Optional warm-up
+            # model(torch.zeros(1, 3, 640, 640).to(device))
+
+            worker_models[pid] = model
+            worker_gpu_ids[pid] = gpu_id
+            print(f"{process_name} (PID {pid}, GPU {gpu_id}): Model loaded successfully onto {model.device}.")
+        except Exception as e:
+            print(f"Error loading model for {process_name} (PID {pid}, GPU {gpu_id}): {e}")
+            import traceback
+            traceback.print_exc()
+            # Clear env var if set? Might affect subsequent calls in same process if task fails.
+            # if "CUDA_VISIBLE_DEVICES" in os.environ: del os.environ["CUDA_VISIBLE_DEVICES"]
+            return None # Failed to load model
+    else:
+        model = worker_models[pid]
+        print(f"{process_name} (PID {pid}, GPU {gpu_id}): Using pre-loaded model on {model.device}.")
+
+    if model is None: # Should not happen if logic above is correct, but safety check
+        print(f"Error: Model is None for {process_name} (PID {pid}, GPU {gpu_id}) after loading attempt.")
         return None
 
     try:
-        # --- GPU Affinity is handled by initializer ---
-        device = worker_model.device # Get device from the loaded model
+        device = model.device # Use the device the model is actually on
 
         # --- Get total frames using cv2 ---
         total_frames = None # Initialize
@@ -84,7 +93,6 @@ def gpu_process_video(video_path, model_path): # Removed gpu_id from args, get f
                 cap.release() # Ensure capture is released
         # ---
 
-        model = worker_model # Use the pre-loaded model
         model_names = model.names # Get model names once
 
         # --- Run tracking (GPU intensive) ---
@@ -97,7 +105,7 @@ def gpu_process_video(video_path, model_path): # Removed gpu_id from args, get f
             stream=True,
             device=device,
             verbose=False
-            # batch=512 # REMOVED: Let stream=True manage batching/flow
+            # batch=512 # Keep removed
         )
 
         # --- Iterate with tqdm progress bar ---
@@ -105,42 +113,38 @@ def gpu_process_video(video_path, model_path): # Removed gpu_id from args, get f
             iterable=results_generator,
             total=total_frames,
             desc=f"GPU {gpu_id}: {video_path.stem[:20]:<20}",
-            position=gpu_id,
+            position=gpu_id, # Position based on assigned gpu_id
             leave=False,
             unit="frame",
             ncols=100
         )
 
-        # --- MODIFIED FOR DIAGNOSIS: Iterate without immediate storage/CPU transfer ---
+        # --- RE-ENABLED result collection ---
         frame_count = 0
         for result in progress_bar:
-            # results_list.append(result.cpu()) # TEMPORARILY COMMENTED OUT
-            # Instead, just do minimal work to consume the generator
+            results_list.append(result.cpu()) # Collect results again
             frame_count += 1
-            pass # Consume the result
-        # --- END MODIFICATION ---
+            # pass # No longer needed
+        # --- END RE-ENABLE ---
 
         # --- GPU processing finished ---
         gpu_duration = time.time() - start_gpu_time
-        print(f"{process_name} (GPU {gpu_id}): GPU processing done for {video_path.name} ({frame_count} frames) in {gpu_duration:.2f}s.")
+        print(f"{process_name} (PID {pid}, GPU {gpu_id}): GPU processing done for {video_path.name} ({frame_count} frames) in {gpu_duration:.2f}s.")
 
-        # --- IMPORTANT: Need to re-enable result collection later --- 
-        # For now, return None or an empty list as results_list is not populated
-        print(f"Warning: Result collection disabled for diagnosis in {process_name} (GPU {gpu_id}) for {video_path.name}")
-        # return video_path.stem, results_list, model_names # Original return
-        return None # Return None as no results were collected
+        # --- Return collected results ---
+        return video_path.stem, results_list, model_names # Original return
 
     except Exception as e:
         cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "Not Set")
-        print(f"Error in GPU task {process_name} (Visible GPU(s): {cuda_visible}, Assigned: {gpu_id}) for {video_path.name}: {e}")
+        print(f"Error in GPU task {process_name} (PID {pid}, Visible GPU(s): {cuda_visible}, Assigned: {gpu_id}) for {video_path.name}: {e}")
         import traceback
         traceback.print_exc()
         return None
     finally:
-        # Don't delete the model here, it's shared by the worker process
+        # Don't delete the model here, it's stored globally for the process
         if torch.cuda.is_available():
-            torch.cuda.empty_cache() # Still good practice
-        print(f"{process_name} (GPU {gpu_id}): GPU task finished for {video_path.name}")
+            torch.cuda.empty_cache()
+        print(f"{process_name} (PID {pid}, GPU {gpu_id}): GPU task finished for {video_path.name}")
 
 
 # --- Helper function for CPU-bound result extraction (used by CPU task) ---
@@ -352,16 +356,9 @@ if __name__ == "__main__":
     try:
         print(f"Creating GPU process pool with size {num_gpus_to_use}")
 
-        # --- Prepare initializer arguments --- 
-        # Need a list of tuples, one for each worker process
-        init_args = [(i % available_gpus, model_path) for i in range(num_gpus_to_use)]
-        print(f"Initializer arguments: {init_args}")
-
-        # --- Create GPU Pool with Initializer --- 
+        # --- Create GPU Pool WITHOUT Initializer --- 
         globals()['gpu_pool'] = mp.Pool(
-            processes=num_gpus_to_use,
-            initializer=init_worker,
-            initargs=init_args # Pass args for each worker
+            processes=num_gpus_to_use
         )
 
         # Create ThreadPoolExecutor for CPU tasks (saving & extraction)
@@ -373,10 +370,11 @@ if __name__ == "__main__":
         gpu_tasks_submitted = 0
         print("Submitting GPU tasks to process pool...")
         for i, video_path in enumerate(video_files):
-            # No need to pass gpu_id to gpu_process_video anymore
-            # The worker process knows its model and GPU
+            # Assign GPU ID based on task index modulo number of GPUs
+            assigned_gpu_id = i % num_gpus_to_use
+            print(f"Submitting {video_path.name} to GPU {assigned_gpu_id}")
             gpu_pool.apply_async(gpu_process_video,
-                                 args=(video_path, model_path), # Pass model_path just in case, though not used by task now
+                                 args=(video_path, model_path, assigned_gpu_id), # Pass assigned_gpu_id
                                  callback=submit_cpu_task)
             gpu_tasks_submitted += 1
 
