@@ -105,7 +105,7 @@ def gpu_process_video(video_path, model_path, gpu_id): # Added gpu_id back
             stream=True,
             device=device,
             verbose=False,
-            batch=64 # Keep removed
+            #batch=64 # Keep removed
         )
 
         # --- Iterate with tqdm progress bar ---
@@ -122,9 +122,8 @@ def gpu_process_video(video_path, model_path, gpu_id): # Added gpu_id back
         # --- RE-ENABLED result collection ---
         frame_count = 0
         for result in progress_bar:
-            results_list.append(result.cpu()) # Collect results again
+            results_list.append(result) # Collect results again
             frame_count += 1
-            # pass # No longer needed
         # --- END RE-ENABLE ---
 
         # --- GPU processing finished ---
