@@ -3,3 +3,6 @@ env/
 videos/
 *.MOV
 *.mp4
+
+Training/customLoss.py
+LaneNet/lanenet-lane-detection
