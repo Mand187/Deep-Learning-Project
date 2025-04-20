@@ -1,13 +1,19 @@
-LaneNet detection provided by
+# LaneNet Lane Detection
 
-https://github.com/MaybeShewill-CV/lanenet-lane-detection?tab=readme-ov-file
+This project utilizes the LaneNet lane detection model provided by the following repository:
 
-All Credits to:
+[LaneNet Lane Detection Repository](https://github.com/MaybeShewill-CV/lanenet-lane-detection?tab=readme-ov-file)
 
-Davy Neven 
-Bert De Brabandere 
-Stamatios Georgoulis 
-Marc Proesmans 
-Luc Van Gool
+### Credits
 
-The clone will not be uploaded here, to reproduce what was done here clone their repo and use their pretrained weights
+The original work is credited to:
+
+- Davy Neven  
+- Bert De Brabandere  
+- Stamatios Georgoulis  
+- Marc Proesmans  
+- Luc Van Gool  
+
+### Note
+
+The original repository and pretrained weights are not included here. To reproduce the results, please clone the original repository and use their pretrained weights.
