@@ -19,10 +19,10 @@ def _extract_frame_data(frame, result, model_names):
     if result.boxes.id is not None:
         try:
             # Perform CPU-bound operations here
-            ids = result.boxes.id.int().cpu().tolist()
-            classes = result.boxes.cls.int().cpu().tolist()
-            boxes = result.boxes.xywh.cpu().tolist()
-            confs = result.boxes.conf.cpu().tolist()
+            ids = result.boxes.id.int().tolist()
+            classes = result.boxes.cls.int().tolist()
+            boxes = result.boxes.xywh.tolist()
+            confs = result.boxes.conf.tolist()
 
             for v_class, v_id, conf, xywh in zip(classes, ids, confs, boxes):
                 x, y, w, h = xywh
@@ -91,7 +91,8 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
             desc=f"GPU {gpu_id} | {video_path.name}",
             unit="frames",
             position=gpu_id,
-            leave=False
+            leave=False,
+            dynamic_ncols=True
         )
         for frame, result in progress_bar:
             # Submit the CPU-bound work to the executor
@@ -107,7 +108,8 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
             desc=f"Aggregating GPU {gpu_id}",
             position=gpu_id,
             leave=False,
-            unit="frames"
+            unit="frames",
+            dynamic_ncols=True
         )
         for future in aggregation_bar:
             try:
@@ -151,7 +153,7 @@ def _actual_save_to_csv(filename_stem, data, output_dir):
         csv_filename = f"{filename_stem}_detections.csv"
         csv_path = output_dir / csv_filename
         df.to_csv(csv_path, index=False)
-        # print(f"ThreadSaver: Saved results for {filename_stem} to {csv_path}") # Optional: more specific logging
+        print(f"ThreadSaver: Saved results for {filename_stem} to {csv_path}") # Optional: more specific logging
     except Exception as e:
         print(f"ThreadSaver: Error saving CSV for {filename_stem}: {e}")
 
