@@ -5,28 +5,21 @@
 import torch
 import torch.nn as nn
 import torch.utils.data as data
-from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
+# from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 from torchtnt.utils.data import CudaDataPrefetcher
-from torchvision import datasets as imageDatasets, transforms as imageTransforms
 from torchprofile import profile_macs
 
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import MinMaxScaler # , LabelEncoder, StandardScaler
 import pandas as pd
 
 from sklearn.model_selection import train_test_split
-import numpy as np
-from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix, ConfusionMatrixDisplay
+# import numpy as np
+import math
 
-import matplotlib
 import matplotlib.pyplot as plt
 
-import os
-from pathlib import Path
 import time
 import signal
-from enum import Enum
-import json
-from itertools import takewhile
 
 assert torch.cuda.is_available(), "ERR: No GPU available"
 
@@ -34,8 +27,8 @@ DEVICE:torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu
 
 if torch.cuda.is_available(): torch.cuda.empty_cache()
 
-# ================================ GET DATA ======================================
-df = pd.read_csv('./test1.csv')
+# ================================ GET CSV DATA ======================================
+df = pd.read_csv('./IMG_4097.csv')
 
 # Get counts of records per ID
 id_counts = df['ID'].value_counts()
@@ -53,11 +46,7 @@ print(f"Average records per ID: {avg_records_per_id:.2f}")
 frame_duplicates = df.groupby(['Frame', 'ID']).size().reset_index(name='counts')
 duplicate_frames = frame_duplicates[frame_duplicates['counts'] > 1]
 
-if not duplicate_frames.empty:
-    print("Warning: Found duplicate IDs within the same frame:")
-    print(duplicate_frames)
-else:
-    print("No duplicate IDs found within the same frame")
+assert duplicate_frames.empty, f"Warning: Found duplicate IDs within the same frame:\n{duplicate_frames}"
 
 # Get counts of IDs per frame
 frame_id_counts = df.groupby('Frame')['ID'].nunique()
@@ -71,156 +60,234 @@ print(f"\nMinimum IDs (Vehicles) per frame: {min_ids_per_frame}")
 print(f"Maximum IDs (Vehicles) per frame: {max_ids_per_frame}")
 print(f"Average IDs (Vehicles) per frame: {avg_ids_per_frame:.2f}")
 
-# One Hot Encode the 'Class' field
-CLASS_PREFIX:str = "Type"
-df = pd.get_dummies(df, columns=[CLASS_PREFIX], dtype=int)
+# Filter the 'Class' field to only keep specified vehicle types
+valid_classes = ['bus', 'car', 'truck']
+df = df[df['Class'].isin(valid_classes)]
 
-# Filter one-hot encoded Class columns to only keep specified vehicle types
-valid_classes = ['bicycle', 'bus', 'car', 'motorcycle', 'cow', 'person', 'train', 'truck']
-class_columns = [field for field in df.columns if field.startswith(f'{CLASS_PREFIX}_')]
-classes_to_keep = [f'{CLASS_PREFIX}_{valid_class}' for valid_class in valid_classes if f'{CLASS_PREFIX}_{valid_class}' in class_columns]
-classes_to_drop = [field for field in class_columns if field not in classes_to_keep]
+# Drop the 'Class' column since we've already filtered to valid vehicle types
+df = df.drop(['Class'], axis=1)
 
-# Drop unwanted Class columns and keep all other columns
-df = df.drop(columns=classes_to_drop)
+# Initialize MinMaxScaler for each coordinate column
+scaler = MinMaxScaler(feature_range=(0, 5))
 
+# Columns to normalize
+fields_to_normalize = ['X', 'Y', 'Height', 'Width']
 
-# le = LabelEncoder()
+# Normalize each coordinate column between 0 and 1
+df[fields_to_normalize] = scaler.fit_transform(df[fields_to_normalize])
 
-# df['mainroad'] = le.fit_transform(df['mainroad'])
-# df['guestroom'] = le.fit_transform(df['guestroom'])
-# df['basement'] = le.fit_transform(df['basement'])
-# df['hotwaterheating'] = le.fit_transform(df['hotwaterheating'])
-# df['airconditioning'] = le.fit_transform(df['airconditioning'])
-# df['prefarea'] = le.fit_transform(df['prefarea'])
+# Normalize Frame field separately since we need to preserve original mapping
+frame_scaler = MinMaxScaler(feature_range=(0, 5))
+original_frames = df['Frame'].values.reshape(-1, 1)
+normalized_frames = frame_scaler.fit_transform(original_frames)
+df['Frame'] = normalized_frames
 
-# useOnHotEncoding: bool = True
-# if useOnHotEncoding:
-#     df = pd.get_dummies(df, columns=['furnishingstatus'], dtype=int)
-# else:
-#     df = df.drop(['furnishingstatus'], axis=1)
+# Function to get original frame value from normalized value
+def get_original_frame(normalized_frame):
+    """Convert normalized frame value back to original frame number"""
+    return int(frame_scaler.inverse_transform([[normalized_frame]])[0][0])
 
-print(df.head())
-# %%
-Y_data = np.log1p(df.pop('price'))
-scaler = StandardScaler()
-X_data = scaler.fit_transform(df)
+# Verify normalization
+print("\nAfter normalization:")
+print(f"X range: {df['X'].min():.4f} to {df['X'].max():.4f}")
+print(f"Y range: {df['Y'].min():.4f} to {df['Y'].max():.4f}")
+print(f"Height range: {df['Height'].min():.4f} to {df['Height'].max():.4f}")
+print(f"Width range: {df['Width'].min():.4f} to {df['Width'].max():.4f}")
+print(f"Frame range: {df['Frame'].min():.4f} to {df['Frame'].max():.4f}")
 
-# print(pd.DataFrame(scaler.inverse_transform(X_data)))
-# print(pd.DataFrame(np.expm1(Y_data)))
+# Reuse IDs relative to max_ids_per_frame to ensure no frame has repeating IDs
+TRANSFORMER_MAX_IDS_PER_FRAME:int = int(max_ids_per_frame * 1.2)
+df['ID'] = df['ID'] % TRANSFORMER_MAX_IDS_PER_FRAME
 
-X_data = torch.tensor(X_data, dtype=torch.float32, device="cuda")
-Y_data = torch.tensor(Y_data, dtype=torch.float32, device="cuda")
+# ================================ CREATE TENSOR FROM CSV DATA ======================================
+# Desired Output Shape: [Sequence/Frame, ID (Padded), features (Frame, X, Y, Width, Height)]
 
-# print(X_data)
-# print(Y_data)
-# ================================================================================
+# Group by frame and create sequences
+frames_grouped = df.groupby('Frame')
+NUM_INPUT_FEATURES:int = 5  # Frame, X, Y, Width, Height
+PADDING_TOKEN:int = -1
+
+# Initialize list to store frame tensors
+frame_tensors = []
+
+# Create padded tensors for each frame
+frames = sorted(df['Frame'].unique())
+for frame in frames:
+    frame_data = frames_grouped.get_group(frame)
+    
+    # Get IDs and features for current frame
+    frame_ids = frame_data['ID'].values
+    frame_features = frame_data[['Frame', 'X', 'Y', 'Width', 'Height']].values
+    
+    # Create padded tensor for current frame
+    frame_tensor = torch.full((TRANSFORMER_MAX_IDS_PER_FRAME, NUM_INPUT_FEATURES), PADDING_TOKEN, dtype=torch.float32)
+    frame_tensor[frame_ids] = torch.from_numpy(frame_features).float()
+    
+    frame_tensors.append(frame_tensor)
+
+# Stack all frames into a single tensor
+frames_tensor = torch.stack(frame_tensors)  # [Sequence, ID, Features]
+
+print(f"Frames tensor shape: {frames_tensor.shape}")
+
+# ================================ Create Sequences and Dataloader ======================================
+# Create sequences of frames and their corresponding next n frames
+SEQUENCE_LENGTH:int = 100  # Number of frames in input sequence     100
+PREDICTION_LENGTH:int = 30  # Number of future frames to predict   30
+
+X = []
+Y = []
+
+for i in range(len(frames_tensor) - SEQUENCE_LENGTH - PREDICTION_LENGTH + 1):
+    # Input sequence (SEQUENCE_LENGTH frames)
+    x_seq = frames_tensor[i:i+SEQUENCE_LENGTH]
+    # Target sequence (next PREDICTION_LENGTH frames)
+    y_seq = frames_tensor[i+SEQUENCE_LENGTH:i+SEQUENCE_LENGTH+PREDICTION_LENGTH]
+    
+    X.append(x_seq)
+    Y.append(y_seq)
+
+# Convert to tensors
+X = torch.stack(X)  # [Num_sequences, SEQUENCE_LENGTH, ID, Features]
+Y = torch.stack(Y)  # [Num_sequences, PREDICTION_LENGTH, ID, Features]
+
+# Split data into train and test sets
+X_Train, X_Test, Y_Train, Y_Test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
+class VehiclePositionDataset(data.Dataset):
+    def __init__(self, features, labels, padding_token = PADDING_TOKEN):
+        self.features = features
+        self.labels = labels
+        
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        return self.features[idx], self.labels[idx]
+
+train_dataset:VehiclePositionDataset = VehiclePositionDataset(X_Train, Y_Train)
+test_dataset:VehiclePositionDataset = VehiclePositionDataset(X_Test, Y_Test)
 
 NUM_WORKERS:int = 0 #int(os.cpu_count() / 2)
 NUM_BATCHES_TO_PREFETCH:int = 2
+BATCH_SIZE:int = 64
 
-train_loader:data.DataLoader = data.DataLoader(train_dataset, batch_size=64,
+train_loader:data.DataLoader = data.DataLoader(train_dataset, batch_size=BATCH_SIZE,
                                                shuffle=True, num_workers=NUM_WORKERS, prefetch_factor=NUM_BATCHES_TO_PREFETCH if NUM_WORKERS > 0 else None, pin_memory=True)
 
-test_loader:data.DataLoader = data.DataLoader(test_dataset, batch_size=64,
+test_loader:data.DataLoader = data.DataLoader(test_dataset, batch_size=BATCH_SIZE,
                                               shuffle=False, num_workers=NUM_WORKERS, prefetch_factor=NUM_BATCHES_TO_PREFETCH if NUM_WORKERS > 0 else None, pin_memory=True)
 
 train_prefetcher:CudaDataPrefetcher = CudaDataPrefetcher(data_iterable=train_loader, device=DEVICE, num_prefetch_batches=NUM_BATCHES_TO_PREFETCH)
 test_prefetcher:CudaDataPrefetcher = CudaDataPrefetcher(data_iterable=test_loader, device=DEVICE, num_prefetch_batches=NUM_BATCHES_TO_PREFETCH)
 
 # %%
-# Patch embedding layer
-class PatchEmbedding(nn.Module):
-    def __init__(self, image_size, patch_size, in_channels=3, embed_dim=256):
+class FrameTransformer(nn.Module):
+    def __init__(self, input_feature_size=NUM_INPUT_FEATURES, num_ids=TRANSFORMER_MAX_IDS_PER_FRAME, sequence_length=SEQUENCE_LENGTH, prediction_length=PREDICTION_LENGTH):
         super().__init__()
-        self.num_patches = (image_size // patch_size) ** 2
-        self.proj = nn.Conv2d(in_channels=in_channels, out_channels=embed_dim, 
-                            kernel_size=patch_size, stride=patch_size)
         
-    def forward(self, x:torch.Tensor):
-        x = self.proj(x)  # [B, embed_dim, H', W']
-        x = x.flatten(start_dim=2)  # [B, embed_dim, num_patches]
-        x = x.transpose(1, 2)  # [B, num_patches, embed_dim]
-        return x
-
-# Transformer Encoder
-class TransformerEncoder(nn.Module):
-    def __init__(self, embed_dim, num_heads, mlp_dim, dropoutP=0.1):
-        super().__init__()
-        self.layer_norm1:nn.LayerNorm = nn.LayerNorm(normalized_shape=embed_dim)
-        self.attention:nn.MultiheadAttention = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, dropout=dropoutP, batch_first=True)
-        self.layer_norm2:nn.LayerNorm = nn.LayerNorm(normalized_shape=embed_dim)
+        HIDDEN_SIZE = 104
+        NUM_HEADS = 8
+        DROPOUT_RATE = 0.1
+        self.prediction_length = prediction_length
         
-        self.mlp:nn.Sequential = nn.Sequential(
-            nn.Linear(in_features=embed_dim, out_features=mlp_dim),
-            nn.GELU(),
-            nn.Dropout(dropoutP),
-            nn.Linear(in_features=mlp_dim, out_features=embed_dim),
-            nn.Dropout(dropoutP)
+        # Sinusoidal positional encoding for frames - creates a unique positional encoding for each frame in the sequence
+        # that helps the model understand the order/temporal relationships between frames. Uses alternating sin/cos waves
+        # of different frequencies to encode position information.
+        positions = torch.arange(sequence_length).unsqueeze(1)
+        feature_frequency = torch.exp(torch.arange(0, HIDDEN_SIZE, 2) * (-math.log(10000.0) / HIDDEN_SIZE))
+        
+        positional_encoder = torch.zeros(1, sequence_length, HIDDEN_SIZE)
+        
+        positional_encoder[0, :, 0::2] = torch.sin(positions * feature_frequency)
+        positional_encoder[0, :, 1::2] = torch.cos(positions * feature_frequency)
+        self.register_buffer('frame_pos_encoder', positional_encoder)  # register as buffer so it moves with model to GPU
+        
+        # Input feature projection
+        self.input_proj = nn.Linear(input_feature_size, HIDDEN_SIZE)
+        
+        # Multihead attention across IDs in a frame
+        self.id_attention = nn.MultiheadAttention(
+            embed_dim=HIDDEN_SIZE,
+            num_heads=NUM_HEADS,
+            dropout=DROPOUT_RATE,
+            batch_first=True
         )
+        
+        # Multihead attention across frames
+        self.frame_attention = nn.MultiheadAttention(
+            embed_dim=HIDDEN_SIZE * num_ids,
+            num_heads=NUM_HEADS,
+            dropout=DROPOUT_RATE,
+            batch_first=True
+        )
+        
+        # Temporal convolution to map sequence length to prediction length
+        self.temporal_conv = nn.Conv1d(
+            in_channels=sequence_length,
+            out_channels=prediction_length,
+            kernel_size=1
+        )
+        
+        # Output feature projection
+        self.output_proj = nn.Linear(HIDDEN_SIZE, input_feature_size)
+        
+        # Layer norms and dropout
+        self.norm1 = nn.LayerNorm(HIDDEN_SIZE)
+        self.norm2 = nn.LayerNorm(HIDDEN_SIZE * num_ids)
+        self.dropout = nn.Dropout(DROPOUT_RATE)
         
     def forward(self, x):
-        x2 = self.layer_norm1(x)
-        attention_output, _ = self.attention(x2, x2, x2)
+        """
+        x.shape: [batch_size, sequence_length, num_ids, input_feature_size]
         
-        x = x + attention_output
+        return.shape: [batch_size, prediction_length, num_ids, input_feature_size]
+        """
+        batch_size, seq_len, num_ids, input_feat_dim = x.shape
         
-        x2 = self.layer_norm2(x)
-        mlp_output = self.mlp(x2)
+        # Project input features to HIDDEN_SIZE
+        x = self.input_proj(x)  # [batch, seq, num_ids, HIDDEN_SIZE]
         
-        x = x + mlp_output
-        return x
+        # Add frame positional encoding
+        x = x + self.frame_pos_encoder.unsqueeze(2)
+        
+        # Reshape for ID attention (treat each frame independently)
+        x_id = x.reshape(batch_size * seq_len, num_ids, -1) # [batch * seq, num_ids, HIDDEN_SIZE]
+        
+        # Self attention across IDs with residual
+        id_attn_out, _ = self.id_attention(x_id, x_id, x_id)
+        id_attn_out = self.dropout(id_attn_out)
+        id_attn_out = self.norm1(x_id + id_attn_out)
+        
+        # Reshape back for frame attention
+        x_frame = id_attn_out.reshape(batch_size, seq_len, num_ids, -1)
+        x_frame = x_frame.reshape(batch_size, seq_len, -1) # [batch, seq, num_ids * HIDDEN_SIZE]
+        
+        # Self attention across frames with residual
+        frame_attn_out, _ = self.frame_attention(x_frame, x_frame, x_frame)
+        frame_attn_out = self.dropout(frame_attn_out)
+        frame_attn_out = self.norm2(x_frame + frame_attn_out)
+        
+        # Reshape for temporal convolution
+        output = frame_attn_out.reshape(batch_size, seq_len, num_ids, -1) # [batch, seq_len, num_ids, HIDDEN_SIZE]
+        output = output.permute(0, 2, 1, 3) # [batch, num_ids, seq_len, HIDDEN_SIZE]
+        output = output.reshape(batch_size * num_ids, seq_len, -1) # [batch*num_ids, seq_len, HIDDEN_SIZE]
+        
+        # Apply temporal convolution
+        output = self.temporal_conv(output) # [batch*num_ids, pred_len, HIDDEN_SIZE]
+        
+        # Reshape back and project to input feature size
+        output = output.reshape(batch_size, num_ids, self.prediction_length, -1) # [batch, num_ids, pred_len, HIDDEN_SIZE]
+        output = output.permute(0, 2, 1, 3) # [batch, pred_len, num_ids, HIDDEN_SIZE]
+        output = self.output_proj(output)  # [batch, pred_len, num_ids, input_feat_dim]
+        
+        return output
 
-class VisionTransformer(nn.Module):
-    def __init__(self):
-        super().__init__()
-        
-        self.NUM_LAYERS:int = 8
-        self.NUM_HEADS:int = 2
-        self.EMBEDDING_SIZE:int = 512
-        # HIDDEN_SIZE:int = 2048
-        DROPOUT_PROB:float = 0.1
-        
-        IMAGE_SIZE:int = 32
-        self.PATCH_SIZE:int = 8
-        NUM_PATCHES = (IMAGE_SIZE // self.PATCH_SIZE) ** 2
-        
-        self.patch_embed:PatchEmbedding = PatchEmbedding(image_size=IMAGE_SIZE, patch_size=self.PATCH_SIZE, in_channels=3, embed_dim=self.EMBEDDING_SIZE)
-        self.CLS_TOKEN:nn.Parameter = nn.Parameter(torch.zeros(1, 1, self.EMBEDDING_SIZE))
-        self.pos_embed:nn.Parameter = nn.Parameter(torch.zeros(1, NUM_PATCHES + 1, self.EMBEDDING_SIZE))
-        
-        self.dropout:nn.Dropout = nn.Dropout(DROPOUT_PROB)
-        
-        self.transformer:nn.ModuleList = nn.ModuleList(
-            [TransformerEncoder(embed_dim=self.EMBEDDING_SIZE, num_heads=self.NUM_HEADS, mlp_dim=4*self.EMBEDDING_SIZE, dropoutP=DROPOUT_PROB) for _ in range(self.NUM_LAYERS)]
-        )
-        
-        self.layer_norm:nn.LayerNorm = nn.LayerNorm(normalized_shape=self.EMBEDDING_SIZE)
-        self.classifier:nn.Linear = nn.Linear(in_features=self.EMBEDDING_SIZE, out_features=100)
-
-    def forward(self, X):
-        BATCH_SIZE = X.shape[0]
-        
-        X = self.patch_embed(X) # (B, 3, H', W') → (B, num_patches, embed_dim)
-        
-        cls_tokens = self.CLS_TOKEN.expand(BATCH_SIZE, -1, -1) # Copy reference to CLS_TOKEN. (1, 1, CLS_TOKEN) → (BATCH_SIZE, 1, CLS_TOKEN)
-        X = torch.cat((cls_tokens, X), dim=1) # Prepend cls_tokens to num_patches in each batch
-        X = X + self.pos_embed
-        X = self.dropout(X)
-        
-        # X => (B, num_patches + <CLS>, embed_dim)
-        for transformer in self.transformer:
-            X = transformer(X)
-            
-        X = self.layer_norm(X)
-        cls_token_final = X[:, 0] # For all batches, get CLS_TOKEN
-        X = self.classifier(cls_token_final)
-        return X
 
 # model.load_state_dict(torch.load('Saved_Models/best_model.pth'))
 
 # ========== Model Parameters ==========
-model:VisionTransformer = VisionTransformer().to(DEVICE)
+model:FrameTransformer = FrameTransformer().to(DEVICE)
 total_params = sum([p.numel() for p in model.parameters()])
 print(f"Total Num Params in loaded model: {total_params:,}")
 
@@ -409,47 +476,3 @@ with torch.inference_mode():
 #                                                   Save Model
 # ===============================================================================================================
 # torch.save(model, 'Saved_Models/ResNet11_Baseline_CIFAR10.pt')
-
-# %%
-# ===============================================================================================================
-#                                                 Visualize Data
-# ===============================================================================================================
-
-# Accuracy = #Correct / #Predictions
-def getAccuracy(labelSet: torch.tensor, predSet:torch.tensor) -> float:
-    correct = torch.eq(labelSet, predSet).sum().item()
-    accuracy = (correct/len(predSet)) * 100
-    return accuracy
-
-with torch.inference_mode():
-    torch.cuda.empty_cache()
-    for X_test_batch, Y_test_batch in test_loader:
-        X_test_batch:torch.Tensor = X_test_batch.to(DEVICE, non_blocking=True)
-        Y_test_batch:torch.Tensor = Y_test_batch.to(DEVICE, non_blocking=True)
-            
-        modelLogits = model(X_test_batch)
-        modelOutputs = modelLogits.softmax(dim=1).argmax(dim=1)
-        
-        outputIndex = 0
-        print(f"Output Logit: {modelLogits[outputIndex]}")
-        print(f"Expected Label: {torch.argmax(modelLogits[outputIndex])}")
-        print(f"Actual Label: {Y_test_batch[outputIndex]}")
-        print(f"Output Label Array: {modelOutputs}")
-        print(f"Actual Label Array: {Y_test_batch.type(torch.int64)}")
-        
-        print(f"Accuracy: {getAccuracy(labelSet=Y_test_batch.type(torch.int64), predSet=modelOutputs):.2f}%")
-        
-        precision = precision_score(Y_test_batch.type(torch.int64).cpu(), modelOutputs.cpu(), average='macro')
-        recall = recall_score(Y_test_batch.type(torch.int64).cpu(), modelOutputs.cpu(), average='macro')
-        f1 = f1_score(Y_test_batch.type(torch.int64).cpu(), modelOutputs.cpu(), average='macro')
-        confusion = confusion_matrix(Y_test_batch.type(torch.int64).cpu(), modelOutputs.cpu())
-        
-        print(f'Precision: {(precision * 100):.4f}%')
-        print(f'Recall: {(recall * 100):.4f}%')
-        print(f'F1 Score: {(f1 * 100):.4f}%')
-        print(f'Confusion Matrix:\n{confusion}')
-        
-        confusionPlot = ConfusionMatrixDisplay(confusion_matrix=confusion)
-        confusionPlot.plot()
-# %%
-# %%
