@@ -6,3 +6,4 @@ videos/
 
 Training/customLoss.py
 LaneNet/lanenet-lane-detection
+*.jpg
