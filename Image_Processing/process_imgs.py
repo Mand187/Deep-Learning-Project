@@ -89,10 +89,9 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
             enumerate(results),
             total=total_frames,
             desc=f"GPU {gpu_id} | {video_path.name}",
-            unit="frames",
+            unit=" frames",
             position=gpu_id,
             leave=False,
-            dynamic_ncols=True
         )
         for frame, result in progress_bar:
             # Submit the CPU-bound work to the executor
@@ -108,8 +107,7 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
             desc=f"Aggregating GPU {gpu_id}",
             position=gpu_id,
             leave=False,
-            unit="frames",
-            dynamic_ncols=True
+            unit=" frames",
         )
         for future in aggregation_bar:
             try:
