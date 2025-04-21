@@ -89,6 +89,7 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
             enumerate(results),
             total=total_frames,
             desc=f"GPU {gpu_id} | {video_path.name}",
+            unit="frames",
             position=gpu_id,
             leave=False
         )
@@ -100,7 +101,14 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
         # --- Wait for all extraction tasks to complete and aggregate results ---
         print(f"{process_name}: GPU processing done for {video_path.name}. Aggregating results...")
         # Add a progress bar for aggregation if many frames/futures
-        aggregation_bar = tqdm(concurrent.futures.as_completed(extraction_futures), total=len(extraction_futures), desc=f"Aggregating GPU {gpu_id}", position=gpu_id, leave=False)
+        aggregation_bar = tqdm(
+            concurrent.futures.as_completed(extraction_futures),
+            total=len(extraction_futures),
+            desc=f"Aggregating GPU {gpu_id}",
+            position=gpu_id,
+            leave=False,
+            unit="frames"
+        )
         for future in aggregation_bar:
             try:
                 frame_data = future.result()
@@ -186,7 +194,7 @@ def signal_handler(sig, frame):
 if __name__ == "__main__":
     # --- Configuration ---
     video_dir = Path('videos/trimmed')  # Use pathlib for easier path handling
-    output_dir = Path('output_csvs')
+    output_dir = Path('output_csvs_12x')
     model_path = 'yolo12x.pt' # Define model path once
     num_gpus_to_use = 4       # Explicitly set to use 4 GPUs
 
