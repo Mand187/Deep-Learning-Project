@@ -7,3 +7,6 @@ videos/
 Training/customLoss.py
 LaneNet/lanenet-lane-detection
 *.jpg
+
+LaneNet/Fast-Lane-Detect
+LaneNet/Fast-Lane-Detect/Weights
