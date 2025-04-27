@@ -1,41 +1,10 @@
-# LaneNet Lane Detection
+## Description
 
-This project utilizes the LaneNet lane detection model provided by the following repository:
+The `lanePosFromJPG.py` script processes annotated images from the CHD dataset to extract lane line data. Currently, it outputs lane lines but does not provide full lane position information. The script relies on the red line annotations present in the CHD dataset.
 
-[Ultra Fast Lane Detection](https://github.com/cfzd/Ultra-Fast-Lane-Detection)
+## Usage
 
-### Credits
+1. Place the annotated images from the CHD dataset into either the `laneId-Eyelevel` or `laneID-HighAngle` folder.
+2. Run the script. It will automatically detect the images in the specified folder and split the lane line data into multiple CSV files.
 
-The original work is credited to:
-
-- Davy Neven  
-- Bert De Brabandere  
-- Stamatios Georgoulis  
-- Marc Proesmans  
-- Luc Van Gool  
-
-### Note
-
-The original repository and pretrained weights are not included here. To reproduce the results, please clone the original repository and use their pretrained weights.
-
-
-# Citation
-
-```BibTeX
-@InProceedings{qin2020ultra,
-author = {Qin, Zequn and Wang, Huanyu and Li, Xi},
-title = {Ultra Fast Structure-aware Deep Lane Detection},
-booktitle = {The European Conference on Computer Vision (ECCV)},
-year = {2020}
-}
-
-@ARTICLE{qin2022ultrav2,
-  author={Qin, Zequn and Zhang, Pengyi and Li, Xi},
-  journal={IEEE Transactions on Pattern Analysis and Machine Intelligence}, 
-  title={Ultra Fast Deep Lane Detection With Hybrid Anchor Driven Ordinal Classification}, 
-  year={2022},
-  volume={},
-  number={},
-  pages={1-14},
-  doi={10.1109/TPAMI.2022.3182097}
-}
+Ensure the folder structure and annotations are correctly set up before running the script.
