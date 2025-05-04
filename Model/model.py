@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 
 import time
 import signal
+import os
 
 assert torch.cuda.is_available(), "ERR: No GPU available"
 
@@ -28,44 +29,62 @@ DEVICE:torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu
 if torch.cuda.is_available(): torch.cuda.empty_cache()
 
 # ================================ GET CSV DATA ======================================
-df = pd.read_csv('./IMG_4097.csv')
+# Path to the Preprocessed_CSVs folder
+csv_folder = './Preprocessed_CSVs'
+csv_files = [f for f in os.listdir(csv_folder) if f.endswith('.csv')]
+
+# Initialize an empty DataFrame to store all data
+df = pd.DataFrame()
+
+# Read each CSV and append a CSV_ID
+for csv_id, csv_file in enumerate(csv_files):
+    temp_df = pd.read_csv(os.path.join(csv_folder, csv_file))
+    temp_df['CSV_ID'] = csv_id  # Add CSV_ID column
+    
+    # Check for duplicate IDs within the same frame before concatenating
+    frame_duplicates = temp_df.groupby(['Frame', 'ID_Norm']).size().reset_index(name='counts')
+    duplicate_frames = frame_duplicates[frame_duplicates['counts'] > 1]
+    assert duplicate_frames.empty, f"Warning: Found duplicate IDs within the same frame in {csv_file}:\n{duplicate_frames}"
+    
+    df = pd.concat([df, temp_df], ignore_index=True)
+
+# Find minimum frame count across all CSVs
+min_frames = df.groupby('CSV_ID')['Frame'].nunique().min()
+
+# For each CSV, remove frames beyond the minimum frame count
+for csv_id in df['CSV_ID'].unique():
+    # Get all frames for this CSV, sorted
+    csv_frames = df[df['CSV_ID'] == csv_id]['Frame'].unique()
+    csv_frames_sorted = sorted(csv_frames)
+    
+    # Determine cutoff frame (min_frames-th frame)
+    if len(csv_frames_sorted) > min_frames:
+        cutoff_frame = csv_frames_sorted[min_frames]
+        # Remove all rows with frame >= cutoff_frame
+        df = df[~((df['CSV_ID'] == csv_id) & (df['Frame'] >= cutoff_frame))]
+
+# Verify all CSVs now have same number of frames
+frames_per_csv = df.groupby('CSV_ID')['Frame'].nunique()
+assert frames_per_csv.nunique() == 1, "Not all CSVs have same number of frames after trimming"
+print(f"\nAll CSVs now have {min_frames} frames after trimming")
 
 # Get counts of records per ID
-id_counts = df['ID'].value_counts()
+id_counts = df['ID_Norm'].value_counts()
 
 # Calculate statistics
-min_records_per_id = id_counts.min()
-max_records_per_id = id_counts.max()
-avg_records_per_id = id_counts.mean()
-
-print(f"Minimum records per ID: {min_records_per_id}")
-print(f"Maximum records per ID: {max_records_per_id}")
-print(f"Average records per ID: {avg_records_per_id:.2f}")
-
-# Check for duplicate IDs within the same frame
-frame_duplicates = df.groupby(['Frame', 'ID']).size().reset_index(name='counts')
-duplicate_frames = frame_duplicates[frame_duplicates['counts'] > 1]
-
-assert duplicate_frames.empty, f"Warning: Found duplicate IDs within the same frame:\n{duplicate_frames}"
+print(f"Minimum records per ID: {id_counts.min()}")
+print(f"Average records per ID: {id_counts.mean():.2f}")
+print(f"Maximum records per ID: {id_counts.max()}")
 
 # Get counts of IDs per frame
-frame_id_counts = df.groupby('Frame')['ID'].nunique()
+frame_id_counts = df.groupby('Frame')['ID_Norm'].nunique()
 
 # Calculate statistics
-min_ids_per_frame = frame_id_counts.min()
-max_ids_per_frame = frame_id_counts.max()
-avg_ids_per_frame = frame_id_counts.mean()
+print(f"\nMinimum IDs (Vehicles) per frame: {frame_id_counts.min()}")
+print(f"Average IDs (Vehicles) per frame: {frame_id_counts.mean():.2f}")
+print(f"Maximum IDs (Vehicles) per frame: {frame_id_counts.max()}")
 
-print(f"\nMinimum IDs (Vehicles) per frame: {min_ids_per_frame}")
-print(f"Maximum IDs (Vehicles) per frame: {max_ids_per_frame}")
-print(f"Average IDs (Vehicles) per frame: {avg_ids_per_frame:.2f}")
-
-# Filter the 'Class' field to only keep specified vehicle types
-valid_classes = ['bus', 'car', 'truck']
-df = df[df['Class'].isin(valid_classes)]
-
-# Drop the 'Class' column since we've already filtered to valid vehicle types
-df = df.drop(['Class'], axis=1)
+TRANSFORMER_MAX_IDS_PER_FRAME:int = int(frame_id_counts.max())
 
 # Initialize MinMaxScaler for each coordinate column
 scaler = MinMaxScaler(feature_range=(0, 5))
@@ -95,61 +114,75 @@ print(f"Height range: {df['Height'].min():.4f} to {df['Height'].max():.4f}")
 print(f"Width range: {df['Width'].min():.4f} to {df['Width'].max():.4f}")
 print(f"Frame range: {df['Frame'].min():.4f} to {df['Frame'].max():.4f}")
 
-# Reuse IDs relative to max_ids_per_frame to ensure no frame has repeating IDs
-TRANSFORMER_MAX_IDS_PER_FRAME:int = int(max_ids_per_frame * 1.2)
-df['ID'] = df['ID'] % TRANSFORMER_MAX_IDS_PER_FRAME
-
 # ================================ CREATE TENSOR FROM CSV DATA ======================================
-# Desired Output Shape: [Sequence/Frame, ID (Padded), features (Frame, X, Y, Width, Height)]
+# Desired Output Shape: [CSV, Sequence/Frame, ID (Padded), features (Frame, X, Y, Width, Height)]
 
 # Group by frame and create sequences
 frames_grouped = df.groupby('Frame')
 NUM_INPUT_FEATURES:int = 5  # Frame, X, Y, Width, Height
-PADDING_TOKEN:int = -1
+PADDING_TOKEN:int = -1 # If ID does not exist, all feature values given this
 
-# Initialize list to store frame tensors
-frame_tensors = []
+# Group by CSV_ID and Frame
+grouped = df.groupby(['CSV_ID', 'Frame'])
 
-# Create padded tensors for each frame
-frames = sorted(df['Frame'].unique())
-for frame in frames:
-    frame_data = frames_grouped.get_group(frame)
+# Initialize list to store CSV tensors
+csv_tensors = []
+
+# Iterate over each CSV_ID
+for csv_id in df['CSV_ID'].unique():
+    csv_data = df[df['CSV_ID'] == csv_id]
+    frames_grouped = csv_data.groupby('Frame')
     
-    # Get IDs and features for current frame
-    frame_ids = frame_data['ID'].values
-    frame_features = frame_data[['Frame', 'X', 'Y', 'Width', 'Height']].values
+    # Initialize list to store frame tensors for this CSV
+    frame_tensors = []
     
-    # Create padded tensor for current frame
-    frame_tensor = torch.full((TRANSFORMER_MAX_IDS_PER_FRAME, NUM_INPUT_FEATURES), PADDING_TOKEN, dtype=torch.float32)
-    frame_tensor[frame_ids] = torch.from_numpy(frame_features).float()
+    # Create padded tensors for each frame in this CSV
+    frames = sorted(csv_data['Frame'].unique())
+    for frame in frames:
+        frame_data = frames_grouped.get_group(frame)
+        
+        # Get IDs and features for current frame
+        frame_ids = frame_data['ID_Norm'].values
+        frame_features = frame_data[['Frame', 'X', 'Y', 'Width', 'Height']].values
+        
+        # Create padded tensor for current frame
+        frame_tensor = torch.full((TRANSFORMER_MAX_IDS_PER_FRAME, NUM_INPUT_FEATURES), PADDING_TOKEN, dtype=torch.float32)
+        frame_tensor[frame_ids] = torch.from_numpy(frame_features).float()
+        
+        frame_tensors.append(frame_tensor)
     
-    frame_tensors.append(frame_tensor)
+    # Stack all frames for this CSV into a single tensor
+    frames_tensor = torch.stack(frame_tensors)  # [Sequence, ID, Features]
+    csv_tensors.append(frames_tensor)
 
-# Stack all frames into a single tensor
-frames_tensor = torch.stack(frame_tensors)  # [Sequence, ID, Features]
+# Stack all CSVs into a single tensor
+all_data_tensor = torch.stack(csv_tensors)  # [CSV, Sequence, ID, Features]
 
-print(f"Frames tensor shape: {frames_tensor.shape}")
+print(f"All data tensor shape: {all_data_tensor.shape}")
 
 # ================================ Create Sequences and Dataloader ======================================
-# Create sequences of frames and their corresponding next n frames
+# Create sequences of frames and their corresponding next n frames, ensuring no cross-CSV sequences
 SEQUENCE_LENGTH:int = 100  # Number of frames in input sequence     100
 PREDICTION_LENGTH:int = 30  # Number of future frames to predict   30
 
 X = []
 Y = []
 
-for i in range(len(frames_tensor) - SEQUENCE_LENGTH - PREDICTION_LENGTH + 1):
-    # Input sequence (SEQUENCE_LENGTH frames)
-    x_seq = frames_tensor[i:i+SEQUENCE_LENGTH]
-    # Target sequence (next PREDICTION_LENGTH frames)
-    y_seq = frames_tensor[i+SEQUENCE_LENGTH:i+SEQUENCE_LENGTH+PREDICTION_LENGTH]
+for csv_idx in range(all_data_tensor.shape[0]):
+    csv_data = all_data_tensor[csv_idx]  # [Sequence, ID, Features]
     
-    X.append(x_seq)
-    Y.append(y_seq)
+    for i in range(len(csv_data) - SEQUENCE_LENGTH - PREDICTION_LENGTH + 1):
+        # Input sequence (SEQUENCE_LENGTH frames)
+        x_seq = csv_data[i:i+SEQUENCE_LENGTH]
+        # Target sequence (next PREDICTION_LENGTH frames) - Only include X and Y features (indices 1 and 2)
+        y_seq = csv_data[i+SEQUENCE_LENGTH:i+SEQUENCE_LENGTH+PREDICTION_LENGTH, :, 1:3]  # Slice to get X and Y only
+        
+        X.append(x_seq)
+        Y.append(y_seq)
 
 # Convert to tensors
 X = torch.stack(X)  # [Num_sequences, SEQUENCE_LENGTH, ID, Features]
-Y = torch.stack(Y)  # [Num_sequences, PREDICTION_LENGTH, ID, Features]
+Y = torch.stack(Y)  # [Num_sequences, PREDICTION_LENGTH, ID, 2] (only X and Y)
 
 # Split data into train and test sets
 X_Train, X_Test, Y_Train, Y_Test = train_test_split(X, Y, test_size=0.2, random_state=42)
@@ -230,7 +263,7 @@ class FrameTransformer(nn.Module):
         )
         
         # Output feature projection
-        self.output_proj = nn.Linear(HIDDEN_SIZE, input_feature_size)
+        self.output_proj = nn.Linear(HIDDEN_SIZE, 2)
         
         # Layer norms and dropout
         self.norm1 = nn.LayerNorm(HIDDEN_SIZE)
@@ -241,7 +274,7 @@ class FrameTransformer(nn.Module):
         """
         x.shape: [batch_size, sequence_length, num_ids, input_feature_size]
         
-        return.shape: [batch_size, prediction_length, num_ids, input_feature_size]
+        return.shape: [batch_size, prediction_length, num_ids, 2 (X, Y)]
         """
         batch_size, seq_len, num_ids, input_feat_dim = x.shape
         
@@ -310,7 +343,6 @@ X, Y = X.to(DEVICE), Y.to(DEVICE)
 print(f"X: {X.shape}")
 logits = model(X.to(DEVICE))
 print(f"Logits: {logits.shape}")
-print(f"Pred: {logits.argmax(dim=1).shape}")
 print(f"Expected: {Y.shape}")
 
 # %%
