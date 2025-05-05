@@ -110,9 +110,50 @@ def assign_lane_ids(lane_positions, image_width):
     
     return final_lanes
 
-def save_lane_data_to_individual_csv(lanes_with_ids, image_file, output_folder):
+def define_lanes_from_lines(lanes_with_ids, image_height, image_width):
     """
-    Save lane data (IDs and equations) to an individual CSV file for each image
+    Define complete lanes by pairing adjacent lane lines
+    Calculate the center line for each lane
+    Returns list of lane tuples: (lane_id, left_line, right_line, center_line)
+    where each line is represented as (x1, y1, x2, y2)
+    """
+    if len(lanes_with_ids) < 2:
+        return []
+    
+    # Extract line positions from lanes_with_ids
+    line_positions = []
+    for lane_id, x1, y1, x2, y2 in lanes_with_ids:
+        mid_x = (x1 + x2) / 2
+        line_positions.append((lane_id, mid_x, (x1, y1, x2, y2)))
+    
+    # Sort lines from left to right
+    line_positions.sort(key=lambda x: x[1])
+    
+    # Pair adjacent lines to form lanes
+    complete_lanes = []
+    for i in range(len(line_positions) - 1):
+        left_id, left_mid_x, left_line = line_positions[i]
+        right_id, right_mid_x, right_line = line_positions[i+1]
+        lane_id = i + 1  # New lane ID
+        
+        left_x1, left_y1, left_x2, left_y2 = left_line
+        right_x1, right_y1, right_x2, right_y2 = right_line
+        
+        # Calculate center line coordinates
+        center_x1 = int((left_x1 + right_x1) / 2)
+        center_y1 = int((left_y1 + right_y1) / 2)
+        center_x2 = int((left_x2 + right_x2) / 2)
+        center_y2 = int((left_y2 + right_y2) / 2)
+        
+        # Store the lane information
+        center_line = (center_x1, center_y1, center_x2, center_y2)
+        complete_lanes.append((lane_id, left_line, right_line, center_line))
+    
+    return complete_lanes
+
+def save_lane_data_to_csv(complete_lanes, lane_lines, image_file, output_folder):
+    """
+    Save lane data (IDs, line equations, center lines) to CSV files
     """
     # Create output folder if it doesn't exist
     if not os.path.exists(output_folder):
@@ -121,25 +162,88 @@ def save_lane_data_to_individual_csv(lanes_with_ids, image_file, output_folder):
     # Get the image name without extension to use as part of the CSV filename
     image_name = os.path.splitext(os.path.basename(image_file))[0]
     
-    # Define the output CSV file path
-    output_file = os.path.join(output_folder, f"{image_name}_lanes.csv")
+    # Define the output CSV file paths
+    lines_file = os.path.join(output_folder, f"{image_name}_lines.csv")
+    lanes_file = os.path.join(output_folder, f"{image_name}_lanes.csv")
 
-    with open(output_file, mode='w', newline='') as file:
+    # Save lane lines data
+    with open(lines_file, mode='w', newline='') as file:
         writer = csv.writer(file)
-        
-        # Write header
-        writer.writerow(["lane_id", "A", "B", "C", "x1", "y1", "x2", "y2"])
-
-        # Write the lane data for the current image
-        for lane_id, x1, y1, x2, y2 in lanes_with_ids:
+        writer.writerow(["line_id", "A", "B", "C", "x1", "y1", "x2", "y2"])
+        for lane_id, x1, y1, x2, y2 in lane_lines:
             A, B, C = line_to_equation(x1, y1, x2, y2)
             writer.writerow([lane_id, A, B, C, x1, y1, x2, y2])
     
-    return output_file
+    # Save complete lanes data
+    with open(lanes_file, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["lane_id", "left_line_id", "right_line_id", 
+                         "center_x1", "center_y1", "center_x2", "center_y2",
+                         "lane_width"])
+        
+        for lane_id, left_line, right_line, center_line in complete_lanes:
+            left_id = lane_id  # Using indices from original lane lines
+            right_id = lane_id + 1
+            
+            center_x1, center_y1, center_x2, center_y2 = center_line
+            
+            # Calculate average lane width
+            left_x1, left_y1, left_x2, left_y2 = left_line
+            right_x1, right_y1, right_x2, right_y2 = right_line
+            width_top = abs(right_x1 - left_x1)
+            width_bottom = abs(right_x2 - left_x2)
+            avg_width = (width_top + width_bottom) / 2
+            
+            writer.writerow([lane_id, left_id, right_id, 
+                            center_x1, center_y1, center_x2, center_y2, 
+                            avg_width])
+    
+    return lines_file, lanes_file
+
+def visualize_lanes_with_centers(image_path, lane_lines, complete_lanes, output_folder):
+    """
+    Visualize lane lines, complete lanes, and lane centers on the image
+    """
+    # Load the image
+    image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    if image is None:
+        print(f"Could not read image: {image_path}")
+        return
+    
+    # Create a copy for visualization
+    vis_image = image.copy()
+    
+    # Define colors for visualization
+    line_color = (0, 0, 255)  # Red for lane lines
+    center_color = (0, 255, 0)  # Green for lane centers
+    
+    # Draw lane lines
+    for lane_id, x1, y1, x2, y2 in lane_lines:
+        cv2.line(vis_image, (x1, y1), (x2, y2), line_color, 2)
+        cv2.putText(vis_image, f"Line {lane_id}", (x1, y1 - 10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, line_color, 2)
+    
+    # Draw lane centers
+    for lane_id, _, _, center_line in complete_lanes:
+        cx1, cy1, cx2, cy2 = center_line
+        cv2.line(vis_image, (cx1, cy1), (cx2, cy2), center_color, 2)
+        cv2.putText(vis_image, f"Lane {lane_id}", (cx1, cy1 - 10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, center_color, 2)
+    
+    # Create visualization folder if it doesn't exist
+    vis_folder = os.path.join(output_folder, 'visualization')
+    if not os.path.exists(vis_folder):
+        os.makedirs(vis_folder)
+    
+    # Save the visualized image
+    output_path = os.path.join(vis_folder, f"lanes_centers_{os.path.basename(image_path)}")
+    cv2.imwrite(output_path, vis_image)
+    
+    return output_path
 
 def process_images_in_folder(folder_path, output_folder):
     """
-    Process all images in a folder to detect lane lines, assign IDs, and save data to individual CSV files
+    Process all images in a folder to detect lane lines, define lanes, and calculate lane centers
     """
     # Get all image files in the folder
     image_files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
@@ -169,69 +273,26 @@ def process_images_in_folder(folder_path, output_folder):
         # Extract lane positions
         lane_positions = extract_lane_lines(image_path)
         
-        # Assign unique IDs to lanes
-        lanes_with_ids = assign_lane_ids(lane_positions, image_width)
+        # Assign unique IDs to lane lines
+        lane_lines = assign_lane_ids(lane_positions, image_width)
         
-        # Save lane data to an individual CSV file
-        csv_file = save_lane_data_to_individual_csv(lanes_with_ids, image_file, csv_folder)
+        # Define complete lanes from pairs of lane lines
+        complete_lanes = define_lanes_from_lines(lane_lines, image_height, image_width)
         
-        # Visualize lanes with IDs
-        visualize_lanes_with_ids(image_path, lanes_with_ids, output_folder)
+        # Save lane data to CSV files
+        lines_file, lanes_file = save_lane_data_to_csv(complete_lanes, lane_lines, image_file, csv_folder)
         
-        print(f"Found {len(lanes_with_ids)} unique lanes in {image_file}")
-        print(f"Lane data saved to {csv_file}")
-
-def visualize_lanes_with_ids(image_path, lanes_with_ids, output_folder):
-    """
-    Visualize lanes with their IDs on the image and save the result
-    """
-    # Load the image
-    image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-    if image is None:
-        print(f"Could not read image: {image_path}")
-        return
-    
-    # Draw lanes with different colors and add lane IDs
-    colors = [
-        (0, 255, 0),    # Green
-        (255, 0, 0),    # Blue
-        (0, 0, 255),    # Red
-        (255, 255, 0),  # Cyan
-        (255, 0, 255),  # Magenta
-        (0, 255, 255),  # Yellow
-        (128, 0, 0),    # Dark blue
-        (0, 128, 0),    # Dark green
-        (0, 0, 128),    # Dark red
-        (128, 128, 0)   # Olive
-    ]
-    
-    for lane_id, x1, y1, x2, y2 in lanes_with_ids:
-        # Get color based on lane ID
-        color = colors[(lane_id - 1) % len(colors)]
+        # Visualize lanes with IDs and centers
+        vis_file = visualize_lanes_with_centers(image_path, lane_lines, complete_lanes, output_folder)
         
-        # Draw the lane line
-        cv2.line(image, (x1, y1), (x2, y2), color, 3)
-        
-        # Add lane ID text
-        mid_x = (x1 + x2) // 2
-        mid_y = (y1 + y2) // 2
-        cv2.putText(image, f"Lane {lane_id}", (mid_x, mid_y), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    
-    # Create visualization folder if it doesn't exist
-    vis_folder = os.path.join(output_folder, 'visualization')
-    if not os.path.exists(vis_folder):
-        os.makedirs(vis_folder)
-    
-    # Save the visualized image
-    output_path = os.path.join(vis_folder, f"lanes_{os.path.basename(image_path)}")
-    cv2.imwrite(output_path, image)
-    
-    return output_path
+        print(f"Found {len(lane_lines)} lane lines and {len(complete_lanes)} complete lanes in {image_file}")
+        print(f"Lane lines data saved to {lines_file}")
+        print(f"Complete lanes data saved to {lanes_file}")
+        print(f"Visualization saved to {vis_file}")
 
 def main():
     """
-    Main function to run the lane detection and ID assignment process
+    Main function to run the lane detection and center line calculation process
     """
     # Get the root directory of the script
     root_dir = os.path.dirname(os.path.abspath(__file__))
@@ -243,7 +304,7 @@ def main():
     # Process all images in the folder
     process_images_in_folder(image_folder, output_folder)
     
-    print(f"Lane detection and ID assignment completed.")
+    print(f"Lane detection and center line calculation completed.")
     print(f"Visualization images saved to: {os.path.join(output_folder, 'visualization')}")
     print(f"CSV files saved to: {os.path.join(output_folder, 'csv_files')}")
 
