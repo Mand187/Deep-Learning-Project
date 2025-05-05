@@ -12,6 +12,9 @@ def process_csv(input_csv_path, output_csv_path):
     df = df[df['Class'].isin(valid_classes)]
     df = df.drop(['Class'], axis=1)
     
+    # Filter out low confidence records (Conf < 0.5)
+    df = df[df['Conf'] >= 0.5]
+    
     # Check for duplicate IDs within the same frame
     frame_duplicates = df.groupby(['Frame', 'ID']).size().reset_index(name='counts')
     duplicate_frames = frame_duplicates[frame_duplicates['counts'] > 1]
