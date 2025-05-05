@@ -6,3 +6,5 @@ videos/
 *.avi
 *.pt
 *.jpg
+*.MP4
+runs/
