@@ -3,6 +3,6 @@ env/
 videos/
 *.MOV
 *.mp4
-
+*.avi
+*.pt
 *.jpg
-

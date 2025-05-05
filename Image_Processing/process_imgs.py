@@ -19,15 +19,15 @@ def _extract_frame_data(frame, result, model_names):
     if result.boxes.id is not None:
         try:
             # Perform CPU-bound operations here
-            ids = result.boxes.id.int().cpu().tolist()
-            classes = result.boxes.cls.int().cpu().tolist()
-            boxes = result.boxes.xywh.cpu().tolist()
-            # confs = result.boxes.conf.cpu().tolist() # If needed
+            ids = result.boxes.id.int().tolist()
+            classes = result.boxes.cls.int().tolist()
+            boxes = result.boxes.xywh.tolist()
+            confs = result.boxes.conf.tolist()
 
-            for v_class, v_id, xywh in zip(classes, ids, boxes):
+            for v_class, v_id, conf, xywh in zip(classes, ids, confs, boxes):
                 x, y, w, h = xywh
                 label = model_names[v_class] # Get class name
-                frame_data.append([frame, v_id, label, int(x), int(y), int(w), int(h)])
+                frame_data.append([frame, v_id, label, conf, int(x), int(y), int(w), int(h)])
         except Exception as e:
             # Log error specific to this frame extraction
             print(f"Error extracting data for frame {frame}: {e}")
@@ -47,7 +47,7 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
     # With 40 total cores and 4 processes, each process might utilize ~10 cores.
     # Start with a number like 8, as the main process thread also needs CPU.
     # The optimal value depends on how much the GIL is released during extraction and requires testing.
-    result_extractor_executor = concurrent.futures.ThreadPoolExecutor(max_workers=8) # Increased from 4
+    result_extractor_executor = concurrent.futures.ThreadPoolExecutor(max_workers=9) # Increased from 4
     extraction_futures = []
     final_results_data = [] # Renamed to avoid confusion
 
@@ -81,7 +81,7 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
             stream=True,
             device=device,
             verbose=False,
-            batch=128
+            batch=64
         )
 
         # --- Process results stream, submitting extraction to threads ---
@@ -89,8 +89,9 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
             enumerate(results),
             total=total_frames,
             desc=f"GPU {gpu_id} | {video_path.name}",
+            unit=" frames",
             position=gpu_id,
-            leave=False
+            leave=False,
         )
         for frame, result in progress_bar:
             # Submit the CPU-bound work to the executor
@@ -100,7 +101,14 @@ def process_video_on_gpu(video_path, gpu_id, model_path, output_dir):
         # --- Wait for all extraction tasks to complete and aggregate results ---
         print(f"{process_name}: GPU processing done for {video_path.name}. Aggregating results...")
         # Add a progress bar for aggregation if many frames/futures
-        aggregation_bar = tqdm(concurrent.futures.as_completed(extraction_futures), total=len(extraction_futures), desc=f"Aggregating GPU {gpu_id}", position=gpu_id, leave=False)
+        aggregation_bar = tqdm(
+            concurrent.futures.as_completed(extraction_futures),
+            total=len(extraction_futures),
+            desc=f"Aggregating GPU {gpu_id}",
+            position=gpu_id,
+            leave=False,
+            unit=" frames",
+        )
         for future in aggregation_bar:
             try:
                 frame_data = future.result()
@@ -139,11 +147,11 @@ def _actual_save_to_csv(filename_stem, data, output_dir):
         return
 
     try:
-        df = pd.DataFrame(data, columns=['Frame', 'ID', 'Class', 'X', 'Y', 'Width', 'Height'])
+        df = pd.DataFrame(data, columns=['Frame', 'ID', 'Class', 'Conf', 'X', 'Y', 'Width', 'Height'])
         csv_filename = f"{filename_stem}_detections.csv"
         csv_path = output_dir / csv_filename
         df.to_csv(csv_path, index=False)
-        # print(f"ThreadSaver: Saved results for {filename_stem} to {csv_path}") # Optional: more specific logging
+        print(f"ThreadSaver: Saved results for {filename_stem} to {csv_path}") # Optional: more specific logging
     except Exception as e:
         print(f"ThreadSaver: Error saving CSV for {filename_stem}: {e}")
 
@@ -185,9 +193,9 @@ def signal_handler(sig, frame):
 # --- Main Execution Block ---
 if __name__ == "__main__":
     # --- Configuration ---
-    video_dir = Path('videos/trimmed')  # Use pathlib for easier path handling
-    output_dir = Path('output_csvs')
-    model_path = 'yolo12l.pt' # Define model path once
+    video_dir = Path('videos/michael')  # Use pathlib for easier path handling
+    output_dir = Path('michael_csvs')
+    model_path = 'yolo12x.pt' # Define model path once
     num_gpus_to_use = 4       # Explicitly set to use 4 GPUs
 
     # --- Preparations ---
