@@ -154,7 +154,7 @@ class Trainer:
 
         return train_losses, val_losses, train_accs, val_accs, epoch_times
 
-    def save_model(self, path):
+    def save_model(self, model, path):
         """Save the model to a file"""
-        torch.save(self.model, path)
+        torch.save(model, path)
 

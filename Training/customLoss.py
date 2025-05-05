@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 
 # Lane-aware loss function
 def lane_loss(predicted, lane_positions):
@@ -14,3 +15,89 @@ def lane_loss(predicted, lane_positions):
         distance_to_lane += min_distance
     
     return distance_to_lane / len(predicted)
+
+
+class ADELoss(nn.Module):
+    def __init__(self, reduction='mean'):
+        super(ADELoss, self).__init__()
+        self.reduction = reduction
+        
+    def forward(self, predictions, targets):
+        """
+        Calculate the Average Displacement Error.
+        """
+        # Calculate Euclidean distance (L2 norm) across the last dimension (x,y coordinates)
+        euclidean_distance = torch.norm(predictions - targets, p=2, dim=-1)
+        
+        # Average over sequence length
+        ade = euclidean_distance.mean(dim=1)  # average over sequence length (dim=1)
+        
+        # Apply reduction
+        if self.reduction == 'mean':
+            return ade.mean()
+        elif self.reduction == 'sum':
+            return ade.sum()
+        else:  # 'none'
+            return ade
+
+
+class FDELoss(nn.Module):
+    def __init__(self, reduction='mean'):
+        super(FDELoss, self).__init__()
+        self.reduction = reduction
+        
+    def forward(self, predictions, targets):
+        # Get the final positions (last timestep)
+        final_predictions = predictions[:, -1]  # (batch_size, num_agents, 2) or (batch_size, 2)
+        final_targets = targets[:, -1]  # (batch_size, num_agents, 2) or (batch_size, 2)
+        
+        # Calculate Euclidean distance (L2 norm)
+        fde = torch.norm(final_predictions - final_targets, p=2, dim=-1)
+        
+        # Apply reduction
+        if self.reduction == 'mean':
+            return fde.mean()
+        elif self.reduction == 'sum':
+            return fde.sum()
+        else:  # 'none'
+            return fde
+
+
+class RMSELoss(nn.Module):
+    def __init__(self, reduction='mean'):
+        super(RMSELoss, self).__init__()
+        self.reduction = reduction
+        self.mse = nn.MSELoss(reduction='none')
+        
+    def forward(self, predictions, targets):
+        # Calculate squared error for each element
+        squared_error = self.mse(predictions, targets)
+        
+        # For trajectory data, we often want to calculate RMSE across coordinate dimensions
+        if predictions.dim() >= 3:
+            # Sum over coordinate dimensions (last dim)
+            squared_error = squared_error.sum(dim=-1)
+            
+            # Mean over sequence length
+            if predictions.dim() >= 4:  # If we have multiple agents
+                # (batch, seq_len, num_agents) -> (batch, num_agents)
+                mse = squared_error.mean(dim=1)
+            else:  # No agent dimension
+                # (batch, seq_len) -> (batch)
+                mse = squared_error.mean(dim=1)
+        else:
+            # For non-trajectory data, handle differently
+            if self.reduction == 'none':
+                return torch.sqrt(squared_error)
+            mse = squared_error.mean(dim=tuple(range(1, squared_error.dim())))
+        
+        # Take square root
+        rmse = torch.sqrt(mse)
+        
+        # Apply reduction
+        if self.reduction == 'mean':
+            return rmse.mean()
+        elif self.reduction == 'sum':
+            return rmse.sum()
+        else:  # 'none'
+            return rmse

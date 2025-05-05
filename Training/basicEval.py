@@ -39,24 +39,31 @@ def confusionMatrix(trueLabels, predictedLabels, classNames=None):
     plt.title('Confusion Matrix')
     plt.show()
 
-def reportFinalMetrics(trainAccuracies, valAccuracies, epochTimes):
+def reportFinalMetrics(trainAccuracies, valAccuracies, trainLosses, valLosses, epochTimes):
     finalTrainAccuracy = trainAccuracies[-1]
     finalValAccuracy = valAccuracies[-1]
-
+    trainLosses = trainLosses[-1]
+    valLosses = valLosses[-1]
     totalTrainingTime = sum(epochTimes)
 
     print(f"Final Training Accuracy: {finalTrainAccuracy:.2f}%")
     print(f"Final Validation Accuracy: {finalValAccuracy:.2f}%")
+    print(f"Final Training Loss: {trainLosses:.4f}")
+    print(f"Final Validation Loss: {valLosses:.4f}")
     print(f"Total Training Time: {totalTrainingTime:.2f} seconds")
 
-def reportMultiFinalMetrics(trainAccuracies, valAccuracies, epochTimes, modelNames):
+def reportMultiFinalMetrics(trainAccuracies, valAccuracies, trainLosses, valLosses, epochTimes, modelNames):
     for i, model in enumerate(modelNames):
         finalTrainAccuracy = trainAccuracies[i][-1]
         finalValAccuracy = valAccuracies[i][-1]
+        trainLosses = trainLosses[i][-1]
+        valLosses = valLosses[i][-1]
         totalTrainingTime = sum(epochTimes[i])
 
         print(f"{model} Final Training Accuracy: {finalTrainAccuracy:.2f}%")
         print(f"{model} Final Validation Accuracy: {finalValAccuracy:.2f}%")
+        print(f"{model} Final Training Loss: {trainLosses:.4f}")
+        print(f"{model} Final Validation Loss: {valLosses:.4f}")
         print(f"{model} Total Training Time: {totalTrainingTime:.2f} seconds")
         print()
 

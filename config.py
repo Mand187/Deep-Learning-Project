@@ -1,7 +1,13 @@
 import torch
 
 # Device configuration
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+if torch.cuda.is_available():
+    print("Using GPU")
+    DEVICE = torch.device("cuda")
+else:
+    print("Using CPU")
+    DEVICE = torch.device("cpu")
 
 # Data parameters
 PADDING_TOKEN = -1
@@ -12,7 +18,7 @@ PREDICTION_LENGTH = 30  # Number of future frames to predict
 # DataLoader parameters
 NUM_WORKERS = 0
 NUM_BATCHES_TO_PREFETCH = 2
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 
 # Training parameters
 EPOCHS = 50
