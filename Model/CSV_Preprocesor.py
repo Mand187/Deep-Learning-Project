@@ -13,7 +13,7 @@ def process_csv(input_csv_path, output_csv_path):
     df = df.drop(['Class'], axis=1)
     
     # Filter out low confidence records (Conf < 0.5)
-    df = df[df['Conf'] >= 0.5]
+    df = df[df['Confidence'] >= 0.5]
     
     # Check for duplicate IDs within the same frame
     frame_duplicates = df.groupby(['Frame', 'ID']).size().reset_index(name='counts')
@@ -139,6 +139,6 @@ def process_all_csvs(raw_csvs_dir, preprocessed_csvs_dir):
         process_csv(input_path, output_path)
 
 if __name__ == "__main__":
-    RAW_CSVS_DIR = "Raw_CSVs"
-    PREPROCESSED_CSVS_DIR = "Preprocessed_CSVs"
+    RAW_CSVS_DIR = "raw_10s"
+    PREPROCESSED_CSVS_DIR = "processed_10s"
     process_all_csvs(RAW_CSVS_DIR, PREPROCESSED_CSVS_DIR)
