@@ -5,6 +5,12 @@ import pandas as pd
 import os
 import numpy as np
 
+"""
+
+
+"""
+
+
 # --- Configuration ---
 video_path = 'visualization/cars-10s.mp4' # Relative path from script location
 prediction_path = 'visualization/predictions.csv'
@@ -13,12 +19,12 @@ output_path = 'visualization/prediction_visualization_future.mp4' # Where to sav
 
 # Column names
 frame_col = 'Frame' # Column name for frame number
-id_col = 'ID'    # Column name for the car ID to use
+id_col = 'ID_Norm'    # Column name for the car ID to use
 current_x_col = 'X' # Column name for current X position
 current_y_col = 'Y' # Column name for current Y position
 
 # Prediction settings
-future_frame_offset = 30 # Number of frames into the future to predict (e.g., 30 frames @ 60fps = 0.5s)
+frame_skip = 5 # Number of frames into the future to predict (e.g., 30 frames @ 60fps = 0.5s)
 
 # --- Ensure output directory exists ---
 output_dir = os.path.dirname(output_path)
@@ -29,7 +35,7 @@ if output_dir and not os.path.exists(output_dir):
 try:
     df = pd.read_csv(csv_path)
     # Verify required columns exist
-    required_cols = [frame_col, id_col, current_x_col, current_y_col, future_x_col, future_y_col]
+    required_cols = [frame_col, id_col, current_x_col, current_y_col]
     if not all(col in df.columns for col in required_cols):
         raise ValueError(f"CSV missing required columns. Found: {df.columns.tolist()}. Required: {required_cols}")
 
@@ -81,91 +87,4 @@ print(f"Processing video: {video_path}")
 print(f"Outputting to: {output_path}")
 print(f"Resolution: {frame_width}x{frame_height}, FPS: {fps}, Total Frames: {total_frames}")
 print(f"Using ID column: '{id_col}', Position columns: '{current_x_col}', '{current_y_col}'")
-print(f"Predicting {future_frame_offset} frames into the future.")
-
-"""
-Predictions start at frame 20
-Use frames 0-19 to predict frames 20-49
-Use frames 50-69 to predict frames 70-89
-Frames 20-49 are in sequence_index 0
-Frames 
-
-For frames 0-19 do nothing
-For frames 20-59:
-    For each car ID in the current frame:
-        Draw a circle at the current position
-        Draw a green arrow to the actual position in the future frame
-        Draw a red arrow to the predicted position in the future frame
-"""
-
-
-# --- Frame-by-Frame Processing ---
-# Use tqdm for progress bar
-for frame_num in tqdm.tqdm(range(total_frames), desc="Processing Frames"):
-    ret, frame = cap.read()
-    if not ret:
-        print(f"Warning: Stopped reading early at frame {frame_num}.")
-        break
-    pred_loop_idx = frame_num % 50
-    if pred_loop_idx < 20:
-        # Skip drawing for frames 0-19
-        out.write(frame)
-        continue
-    
-
-    # Get detections for the current frame
-    # Use direct boolean indexing which is usually efficient
-    frame_detections = df[df[frame_col] == frame_num]
-
-    # Draw prediction lines for each detection
-    for _, row in frame_detections.iterrows():
-        # Get current position and ID
-        pt1 = (int(row[current_x_col]), int(row[current_y_col]))
-        car_id_norm = row[id_col] # Already converted type during loading
-
-        # Draw circle at current position
-        cv2.circle(frame, pt1, 3, (0, 0, 255), -1) # Red circle, filled
-
-        # Calculate target future frame
-        future_frame = frame_num + future_frame_offset
-
-        # Find the car's data in the future frame using the index
-        future_index = (future_frame, car_id_norm)
-        try:
-            # Use .loc for index-based lookup
-            future_row = grouped_data.loc[future_index]
-
-            # If future_row is a Series (single match)
-            if isinstance(future_row, pd.Series):
-                pt2 = (int(future_row[future_x_col]), int(future_row[future_y_col]))
-                # Draw the prediction line
-                cv2.arrowedLine(frame, pt1, pt2, (0, 0, 255), 2) # Red line, thickness 2
-            # Handle case if multiple rows match (shouldn't happen with unique frame, id pairs)
-            elif isinstance(future_row, pd.DataFrame) and not future_row.empty:
-                 # Take the first match if duplicates exist (log warning?)
-                 first_future_row = future_row.iloc[0]
-                 pt2 = (int(first_future_row[current_x_col]), int(first_future_row[current_y_col]))
-                 cv2.arrowedline(frame, pt1, pt2, (0, 255, 0), 2)
-                 print(f"Warning: Multiple entries found for Frame {future_frame}, ID {car_id_norm}. Using first.")
-
-
-            # Optional: Put ID text near the start point
-            # cv2.putText(frame, str(car_id_norm), (pt1[0] + 5, pt1[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-        except KeyError:
-            # Data for this car_id_norm not found at future_frame
-            # No line is drawn, only the circle at pt1 remains
-            pass
-        except Exception as e:
-             print(f"Error during future lookup for Frame {frame_num}, ID {car_id_norm}: {e}")
-
-
-    # Write the frame with drawings to the output video
-    out.write(frame)
-
-# --- Cleanup ---
-cap.release()
-out.release()
-cv2.destroyAllWindows()
-
-print(f"\nProcessing complete. Output saved to {output_path}")
+print(f"Predicting {frame_skip} frames into the future.")
