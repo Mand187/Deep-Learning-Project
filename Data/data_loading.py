@@ -93,47 +93,52 @@ def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
     return df, transformer_max_ids_per_frame, frame_scaler
 
 
-def create_tensor_from_dataframe(df, transformer_max_ids_per_frame):
+def create_tensor_from_dataframe(df, transformer_max_ids_per_frame): # Keep arg for compatibility if needed elsewhere
     """Create a tensor from dataframe for model input"""
     # Group by frame and create sequences
     frames_grouped = df.groupby('Frame')
-    
+
     # Group by CSV_ID and Frame
     grouped = df.groupby(['CSV_ID', 'Frame'])
-    
+
+    # *** Determine the required size based on the maximum ID_Norm value ***
+    max_id_norm_value = df['ID_Norm'].max()
+    tensor_id_dimension_size = max_id_norm_value + 1 # Add 1 because IDs are 0-based indices
+    print(f"Determined tensor ID dimension size based on max(ID_Norm): {tensor_id_dimension_size}")
+
     # Initialize list to store CSV tensors
     csv_tensors = []
-    
+
     # Iterate over each CSV_ID
     for csv_id in df['CSV_ID'].unique():
         csv_data = df[df['CSV_ID'] == csv_id]
         frames_grouped = csv_data.groupby('Frame')
-        
+
         # Initialize list to store frame tensors for this CSV
         frame_tensors = []
-        
+
         # Create padded tensors for each frame in this CSV
         frames = sorted(csv_data['Frame'].unique())
         for frame in frames:
             frame_data = frames_grouped.get_group(frame)
-            
+
             # Get IDs and features for current frame
             frame_ids = frame_data['ID_Norm'].values
             frame_features = frame_data[['Frame', 'X', 'Y', 'Width', 'Height']].values
-            
-            # Create padded tensor for current frame
-            frame_tensor = torch.full((transformer_max_ids_per_frame, NUM_INPUT_FEATURES), PADDING_TOKEN, dtype=torch.float32)
+
+            # Create padded tensor for current frame using the calculated dimension size
+            frame_tensor = torch.full((tensor_id_dimension_size, NUM_INPUT_FEATURES), PADDING_TOKEN, dtype=torch.float32)
             frame_tensor[frame_ids] = torch.from_numpy(frame_features).float()
-            
+
             frame_tensors.append(frame_tensor)
-        
+
         # Stack all frames for this CSV into a single tensor
         frames_tensor = torch.stack(frame_tensors)  # [Sequence, ID, Features]
         csv_tensors.append(frames_tensor)
-    
+
     # Stack all CSVs into a single tensor
     all_data_tensor = torch.stack(csv_tensors)  # [CSV, Sequence, ID, Features]
-    
+
     print(f"All data tensor shape: {all_data_tensor.shape}")
     return all_data_tensor
 

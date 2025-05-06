@@ -7,6 +7,7 @@ import numpy as np
 
 # --- Configuration ---
 video_path = 'visualization/cars-10s.mp4' # Relative path from script location
+prediction_path = 'visualization/predictions.csv'
 csv_path = 'visualization/cars-10s_detections.csv' # Relative path
 output_path = 'visualization/prediction_visualization_future.mp4' # Where to save the output video
 
@@ -15,8 +16,6 @@ frame_col = 'Frame' # Column name for frame number
 id_col = 'ID'    # Column name for the car ID to use
 current_x_col = 'X' # Column name for current X position
 current_y_col = 'Y' # Column name for current Y position
-future_x_col = 'X'
-future_y_col = 'Y'
 
 # Prediction settings
 future_frame_offset = 30 # Number of frames into the future to predict (e.g., 30 frames @ 60fps = 0.5s)
@@ -84,6 +83,22 @@ print(f"Resolution: {frame_width}x{frame_height}, FPS: {fps}, Total Frames: {tot
 print(f"Using ID column: '{id_col}', Position columns: '{current_x_col}', '{current_y_col}'")
 print(f"Predicting {future_frame_offset} frames into the future.")
 
+"""
+Predictions start at frame 20
+Use frames 0-19 to predict frames 20-49
+Use frames 50-69 to predict frames 70-89
+Frames 20-49 are in sequence_index 0
+Frames 
+
+For frames 0-19 do nothing
+For frames 20-59:
+    For each car ID in the current frame:
+        Draw a circle at the current position
+        Draw a green arrow to the actual position in the future frame
+        Draw a red arrow to the predicted position in the future frame
+"""
+
+
 # --- Frame-by-Frame Processing ---
 # Use tqdm for progress bar
 for frame_num in tqdm.tqdm(range(total_frames), desc="Processing Frames"):
@@ -91,6 +106,12 @@ for frame_num in tqdm.tqdm(range(total_frames), desc="Processing Frames"):
     if not ret:
         print(f"Warning: Stopped reading early at frame {frame_num}.")
         break
+    pred_loop_idx = frame_num % 50
+    if pred_loop_idx < 20:
+        # Skip drawing for frames 0-19
+        out.write(frame)
+        continue
+    
 
     # Get detections for the current frame
     # Use direct boolean indexing which is usually efficient
