@@ -9,3 +9,4 @@ videos/
 *.MP4
 runs/
 *.dtmp
+*.csv
