@@ -14,8 +14,8 @@ import threading # For potential Lock if needed, though futures might suffice
 
 model = YOLO('yolo12x.pt').to('cuda', non_blocking=True)  # load a model from file
 
-data_dir = 'dataset/michael'
-output_dir = 'michael_csvs'
+data_dir = 'visualization'
+output_dir = 'visualization'
 
 #create output directory if it doesn't exist
 os.makedirs(output_dir, exist_ok=True)
