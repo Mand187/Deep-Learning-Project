@@ -65,6 +65,16 @@ def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
     print(f"Average IDs (Vehicles) per frame: {frame_id_counts.mean():.2f}")
     print(f"Maximum IDs (Vehicles) per frame: {frame_id_counts.max()}")
     
+    
+    print(f"\nBefore normalization:")
+    print(f"X range: {df['X'].min():.4f} to {df['X'].max():.4f}")
+    print(f"Y range: {df['Y'].min():.4f} to {df['Y'].max():.4f}")
+    print(f"Height range: {df['Height'].min():.4f} to {df['Height'].max():.4f}")
+    print(f"Width range: {df['Width'].min():.4f} to {df['Width'].max():.4f}")
+    print(f"Frame range: {df['Frame'].min():.4f} to {df['Frame'].max():.4f}")
+    
+    
+    
     transformer_max_ids_per_frame = int(frame_id_counts.max())
     
     # Initialize MinMaxScaler for each coordinate column
@@ -155,7 +165,7 @@ def create_sequences(all_data_tensor):
             # Input sequence (SEQUENCE_LENGTH frames)
             x_seq = csv_data[i:i+SEQUENCE_LENGTH]
             # Target sequence (next PREDICTION_LENGTH frames) - Only include X and Y features (indices 1 and 2)
-            y_seq = csv_data[i+SEQUENCE_LENGTH:i+SEQUENCE_LENGTH+PREDICTION_LENGTH, :, 2:4]  # Slice to get X and Y only
+            y_seq = csv_data[i+SEQUENCE_LENGTH:i+SEQUENCE_LENGTH+PREDICTION_LENGTH, :, 1:3]  # Slice to get X and Y only
             
             X.append(x_seq)
             Y.append(y_seq)
