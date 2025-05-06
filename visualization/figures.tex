@@ -3,7 +3,7 @@
 % https://github.com/sisl/vehicleshapes
 \usepackage{carshapes}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta, positioning, shapes.geometric, calc, chains}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, calc, chains, scopes, fit}
 
 
 \begin{document}
@@ -46,7 +46,7 @@
         body color = red!30, 
         window color = black!80,
         minimum width = \CarWidthNode,
-        label={[font=\scriptsize, label distance=-1mm]left:CarA1} % Adjusted label
+        label={[font=\scriptsize, label distance=-2mm]left:Car A1} % Adjusted label
     ]
     at (2, 2.2) % Position on the first road
     {};
@@ -55,7 +55,7 @@
         body color = blue!30, 
         window color = black!80,
         minimum width = \CarWidthNode,
-        label={[font=\scriptsize, label distance=-1mm]left:CarB1} % Adjusted label
+        label={[font=\scriptsize, label distance=-2mm]left:Car B1} % Adjusted label
     ]
     at (5, 2.6) % Position on the first road
     {};
@@ -64,7 +64,7 @@
         body color = green!40!black!60, % Green color
         window color = black!80,
         minimum width = \CarWidthNode,
-        label={[font=\scriptsize, label distance=-1mm]left:CarC1} 
+        label={[font=\scriptsize, label distance=-2mm]left:Car C1} 
     ]
     at (6, 0.5) % Position below CarB1
     {};
@@ -95,7 +95,7 @@
         body color = red!30, 
         window color = black!80,
         minimum width = \CarWidthNode,
-        label={[font=\scriptsize, label distance=-1mm]left:CarA2} % Adjusted label
+        label={[font=\scriptsize, label distance=-2mm]left:Car A2} % Adjusted label
     ]
     at (\RoadStartXTwo + 5, 0.8) % New position for CarA2 (was CarC2's position)
     {}; 
@@ -104,7 +104,7 @@
         body color = blue!30, 
         window color = black!80,
         minimum width = \CarWidthNode,
-        label={[font=\scriptsize, label distance=-1mm]left:CarB2} % Adjusted label
+        label={[font=\scriptsize, label distance=-2mm]left:Car B2} % Adjusted label
     ]
     at (\RoadStartXTwo + 6.5, 2.6) % Position on the second road
     {};
@@ -113,10 +113,99 @@
         body color = green!40!black!60, % Green color
         window color = black!80,
         minimum width = \CarWidthNode,
-        label={[font=\scriptsize, label distance=-1mm]left:CarC2}
+        label={[font=\scriptsize, label distance=-2mm]left:Car C2}
     ]
     at (\RoadStartXTwo + 8.5, 0.5) % New position for CarC2 (was CarA2's position)
     {};
+
+\end{tikzpicture}
+
+
+%\usetikzlibrary {chains,scopes}
+\begin{tikzpicture}
+  % Same as above, using the scope shorthand
+  { [start chain]
+    \node [on chain] {A};
+    \node [on chain] {B};
+    \node [on chain] {C};
+  }
+\end{tikzpicture}
+
+\begin{tikzpicture}
+    % Make a chain of squares with labels
+    \def\NodeSpacing{5mm}
+    \def\RowSpacing{2cm}
+    \tikzset{feature node/.style={draw, circle, minimum width=0.5cm, minimum height=0.5cm}} % Changed from 'every node'
+    \tikzset{embed node/.style={draw, rectangle, minimum width=0.5cm, minimum height=0.5cm}} % Changed from 'every node'
+    \tikzset{every label/.style={font=\scriptsize}}
+
+            {
+                [start chain, node distance=\NodeSpacing] % Added node distance for better spacing
+                \node [on chain, feature node, fill = red!30] (FA1) {\small Encoding A1}; % Applied 'feature node' style
+                \node [on chain, feature node, fill = blue!30] (FB1) {\small Encoding B1}; % Applied 'feature node' style
+                \node [on chain, feature node, fill = green!30] (FC1) {\small Encoding C1}; % Applied 'feature node' style
+                \node [on chain] (Space) {};
+                \node [on chain, feature node, fill = red!30] (FA2) {\small Encoding A2}; % Applied 'feature node' style
+                \node [on chain, feature node, fill = blue!30] (FB2) {\small Encoding B2}; % Applied 'feature node' style
+                \node [on chain, feature node, fill = green!30] (FC2) {\small Encoding C2}; % Applied 'feature node' style
+            }
+            % Box for Frame 1
+            \node[draw, thick, rounded corners, fit=(FA1) (FB1) (FC1), inner sep=22pt, label={[font=\large]above:Frame 1}] (Box1) {};
+            
+            \draw[<->, thick] (FA1.north) to[bend left=45] (FB1.north);
+            \draw[<->, thick] (FB1.north) to[bend left=45] (FC1.north);
+            
+            \node[draw, thick, rounded corners, fit=(FA2) (FB2) (FC2), inner sep=22pt, label={[font=\large]above:Frame 2}] {};
+            \draw[<->, thick] (FA2.north) to[bend left=45] (FB2.north);
+            \draw[<->, thick] (FB2.north) to[bend left=45] (FC2.north);
+
+            
+            % Draw Car Embedding boxes
+            \node[embed node, below=\RowSpacing of FA1, fill=red!35] (EA1) {\small Car Embedding A1};
+            \node[embed node, below=\RowSpacing of FB1, fill=blue!35] (EB1) {\small Car Embedding B1};
+            \node[embed node, below=\RowSpacing of FC1, fill=green!35] (EC1) {\small Car Embedding C1};
+            \node[embed node, below=\RowSpacing of FA2, fill=red!35] (EA2) {\small Car Embedding A2};
+            \node[embed node, below=\RowSpacing of FB2, fill=blue!35] (EB2) {\small Car Embedding B2};
+            \node[embed node, below=\RowSpacing of FC2, fill=green!35] (EC2) {\small Car Embedding C2};
+
+            \draw[->, thick] (FA1.south) to (EA1.north);
+            \draw[->, thick] (FB1.south) to (EB1.north);
+            \draw[->, thick] (FC1.south) to (EC1.north);
+            \draw[->, thick] (FA2.south) to (EA2.north);
+            \draw[->, thick] (FB2.south) to (EB2.north);
+            \draw[->, thick] (FC2.south) to (EC2.north);
+
+            % Draw arrows between Car Embeddings
+            % Correctly place node (1) at the midpoint of the curved arrowh);
+            \draw[<->, thick, color=red] (EA1.south) to[bend right=35] node[midway, name=1] {} (EA2.south);
+            \draw[<->, thick, color=blue] (EB1.south) to[bend right=35] node[midway, name=2] {} (EB2.south);
+            \draw[<->, thick, color=green] (EC1.south) to[bend right=35] node[midway, name=3] {} (EC2.south);
+
+
+            \node[embed node, below=\RowSpacing/2 of 1, fill=red!35] (SA1) {\small Seq Embedding A1};
+            \node[embed node, below=\RowSpacing/2 of 2, fill=blue!35] (SB1) {\small Seq Embedding B1};
+            \node[embed node, below=\RowSpacing/2 of 3, fill=green!35] (SC1) {\small Seq Embedding C1};
+
+            \draw[->, thick, color=red] (1.south) to (SA1.north);
+            \draw[->, thick, color=blue] (2.south) to (SB1.north);
+            \draw[->, thick, color=green] (3.south) to (SC1.north);
+
+            \node[draw, thick, rounded corners, below=\RowSpacing/4 of SA1] (1DC1) {\small 1D Convolution}; 
+            \node[draw, thick, rounded corners, below=\RowSpacing/4 of SB1] (1DC2) {\small 1D Convolution};
+            \node[draw, thick, rounded corners, below=\RowSpacing/4 of SC1] (1DC3) {\small 1D Convolution};
+            \draw[->, thick] (SA1.south) to (1DC1.north);
+            \draw[->, thick] (SB1.south) to (1DC2.north);
+            \draw[->, thick] (SC1.south) to (1DC3.north);
+
+            \node[draw, thick, rounded corners, below=\RowSpacing/4 of 1DC1, fill=red!30] (PA) {\small Prediction A};
+            \node[draw, thick, rounded corners, below=\RowSpacing/4 of 1DC2, fill=blue!30] (PB) {\small Prediction B};
+            \node[draw, thick, rounded corners, below=\RowSpacing/4 of 1DC3, fill=green!30] (PC) {\small Prediction C};
+            \draw[->, thick] (1DC1.south) to (PA.north);
+            \draw[->, thick] (1DC2.south) to (PB.north);
+            \draw[->, thick] (1DC3.south) to (PC.north);
+            
+
+            
 
 \end{tikzpicture}
 
