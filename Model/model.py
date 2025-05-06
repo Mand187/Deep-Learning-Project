@@ -279,7 +279,7 @@ class FrameTransformer(nn.Module):
         batch_size, seq_len, num_ids, input_feat_dim = x.shape
         
         # Project input features to HIDDEN_SIZE
-        x = self.input_proj(x)  # [batch, seq, num_ids, HIDDEN_SIZE]
+        x = self.input_proj(x)  # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
         
         # Add frame positional encoding
         x = x + self.frame_pos_encoder.unsqueeze(2)
@@ -294,7 +294,7 @@ class FrameTransformer(nn.Module):
         
         # Reshape back for frame attention
         x_frame = id_attn_out.reshape(batch_size, seq_len, num_ids, -1)
-        x_frame = x_frame.reshape(batch_size, seq_len, -1) # [batch, seq, num_ids * HIDDEN_SIZE]
+        x_frame = x_frame.reshape(batch_size, seq_len, -1) # [batch_size, sequence_length, num_ids * HIDDEN_SIZE]
         
         # Self attention across frames with residual
         frame_attn_out, _ = self.frame_attention(x_frame, x_frame, x_frame)
@@ -302,17 +302,17 @@ class FrameTransformer(nn.Module):
         frame_attn_out = self.norm2(x_frame + frame_attn_out)
         
         # Reshape for temporal convolution
-        output = frame_attn_out.reshape(batch_size, seq_len, num_ids, -1) # [batch, seq_len, num_ids, HIDDEN_SIZE]
-        output = output.permute(0, 2, 1, 3) # [batch, num_ids, seq_len, HIDDEN_SIZE]
-        output = output.reshape(batch_size * num_ids, seq_len, -1) # [batch*num_ids, seq_len, HIDDEN_SIZE]
+        output = frame_attn_out.reshape(batch_size, seq_len, num_ids, -1) # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
+        output = output.permute(0, 2, 1, 3) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
+        output = output.reshape(batch_size * num_ids, seq_len, -1) # [batch_size*num_ids, sequence_length, HIDDEN_SIZE]
         
         # Apply temporal convolution
-        output = self.temporal_conv(output) # [batch*num_ids, pred_len, HIDDEN_SIZE]
+        output = self.temporal_conv(output) # [batch_size*num_ids, prediction_length, HIDDEN_SIZE]
         
         # Reshape back and project to input feature size
-        output = output.reshape(batch_size, num_ids, self.prediction_length, -1) # [batch, num_ids, pred_len, HIDDEN_SIZE]
-        output = output.permute(0, 2, 1, 3) # [batch, pred_len, num_ids, HIDDEN_SIZE]
-        output = self.output_proj(output)  # [batch, pred_len, num_ids, input_feat_dim]
+        output = output.reshape(batch_size, num_ids, self.prediction_length, -1) # [batch_size, num_ids, prediction_length, HIDDEN_SIZE]
+        output = output.permute(0, 2, 1, 3) # [batch_size, prediction_length, num_ids, HIDDEN_SIZE]
+        output = self.output_proj(output)  # [batch_size, prediction_length, num_ids, 2]
         
         return output
 
