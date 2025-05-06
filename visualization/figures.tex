@@ -1,0 +1,123 @@
+\documentclass[border=25pt]{standalone}
+
+% https://github.com/sisl/vehicleshapes
+\usepackage{carshapes}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric, calc, chains}
+
+
+\begin{document}
+
+
+\begin{tikzpicture}
+    % Define dimensions
+    \def\RoadStartXOne{-1}
+    \def\RoadWidth{10} % Width of a single road segment
+    \def\RoadGap{4}    % Gap between the two roads
+    \def\RoadStartY{-1}
+    \def\RoadEndY{4}
+    \def\LaneMarkingY{1.5} % Y position of the lane marking
+    \def\BoxPadding{0.5} % Padding around the road for the frame box
+    \def\LabelYOffset{0.5} % Offset for the Frame label above the box
+
+    \def\RoadStartXTwo{\RoadStartXOne + \RoadWidth + \RoadGap}
+
+    % --- First Road (Frame 1) ---
+    % Draw Frame 1 Box
+    \draw[thick, black] 
+        (\RoadStartXOne - \BoxPadding, \RoadStartY - \BoxPadding) 
+        rectangle 
+        (\RoadStartXOne + \RoadWidth + \BoxPadding, \RoadEndY + \BoxPadding);
+    % Label for Frame 1
+    \node[above, font=\large] 
+        at ({(\RoadStartXOne + (\RoadStartXOne + \RoadWidth))/2}, \RoadEndY + \BoxPadding) 
+        {Frame 1};
+
+    \fill[gray!30] (\RoadStartXOne,\RoadStartY) rectangle (\RoadStartXOne+\RoadWidth,\RoadEndY); % Road surface
+    \draw[dashed, white, thick] (\RoadStartXOne,\LaneMarkingY) -- (\RoadStartXOne+\RoadWidth,\LaneMarkingY); % Lane marking
+
+    % Define a standard car size for this scene
+    \def\CarWidthNode{2.5cm} % Using 'cm' as in the original, for node minimum width
+    % \def\CarHeight{1.75} % Not directly used by sedan top shape in this manner
+
+    % Cars on the first road
+    \node [
+        sedan top, 
+        body color = red!30, 
+        window color = black!80,
+        minimum width = \CarWidthNode,
+        label={[font=\scriptsize, label distance=-1mm]left:CarA1} % Adjusted label
+    ]
+    at (2, 2.2) % Position on the first road
+    {};
+    \node [
+        sedan top,  
+        body color = blue!30, 
+        window color = black!80,
+        minimum width = \CarWidthNode,
+        label={[font=\scriptsize, label distance=-1mm]left:CarB1} % Adjusted label
+    ]
+    at (5, 2.6) % Position on the first road
+    {};
+    \node [ % New Car C1
+        sedan top,  
+        body color = green!40!black!60, % Green color
+        window color = black!80,
+        minimum width = \CarWidthNode,
+        label={[font=\scriptsize, label distance=-1mm]left:CarC1} 
+    ]
+    at (6, 0.5) % Position below CarB1
+    {};
+
+    % --- Arrow between roads ---
+    \draw[-{Stealth[length=10pt, width=10pt]}, ultra thick, black] 
+        (\RoadStartXOne+\RoadWidth + \RoadGap*0.2, {(\RoadStartY+\RoadEndY)/2}) -- 
+        (\RoadStartXTwo - \RoadGap*0.2, {(\RoadStartY+\RoadEndY)/2}) 
+        node[midway, above=2mm, font=\large] {Next Frame};
+
+    % --- Second Road (Frame 2) ---
+    % Draw Frame 2 Box
+    \draw[thick, black] 
+        (\RoadStartXTwo - \BoxPadding, \RoadStartY - \BoxPadding) 
+        rectangle 
+        (\RoadStartXTwo + \RoadWidth + \BoxPadding, \RoadEndY + \BoxPadding);
+    % Label for Frame 2
+    \node[above, font=\large] 
+        at ({(\RoadStartXTwo + (\RoadStartXTwo + \RoadWidth))/2}, \RoadEndY + \BoxPadding) 
+        {Frame 2};
+
+    \fill[gray!30] (\RoadStartXTwo,\RoadStartY) rectangle (\RoadStartXTwo+\RoadWidth,\RoadEndY); % Road surface
+    \draw[dashed, white, thick] (\RoadStartXTwo,\LaneMarkingY) -- (\RoadStartXTwo+\RoadWidth,\LaneMarkingY); % Lane marking
+
+    % Cars on the second road (moved positions)
+    \node [
+        sedan top, 
+        body color = red!30, 
+        window color = black!80,
+        minimum width = \CarWidthNode,
+        label={[font=\scriptsize, label distance=-1mm]left:CarA2} % Adjusted label
+    ]
+    at (\RoadStartXTwo + 5, 0.8) % New position for CarA2 (was CarC2's position)
+    {}; 
+    \node [
+        sedan top,  
+        body color = blue!30, 
+        window color = black!80,
+        minimum width = \CarWidthNode,
+        label={[font=\scriptsize, label distance=-1mm]left:CarB2} % Adjusted label
+    ]
+    at (\RoadStartXTwo + 6.5, 2.6) % Position on the second road
+    {};
+    \node [ % New Car C2
+        sedan top,  
+        body color = green!40!black!60, % Green color
+        window color = black!80,
+        minimum width = \CarWidthNode,
+        label={[font=\scriptsize, label distance=-1mm]left:CarC2}
+    ]
+    at (\RoadStartXTwo + 8.5, 0.5) % New position for CarC2 (was CarA2's position)
+    {};
+
+\end{tikzpicture}
+
+\end{document}
