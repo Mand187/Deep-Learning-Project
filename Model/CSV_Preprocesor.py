@@ -139,6 +139,6 @@ def process_all_csvs(raw_csvs_dir, preprocessed_csvs_dir):
         process_csv(input_path, output_path)
 
 if __name__ == "__main__":
-    RAW_CSVS_DIR = "raw_10s"
-    PREPROCESSED_CSVS_DIR = "processed_10s"
+    RAW_CSVS_DIR = "raw_merge"
+    PREPROCESSED_CSVS_DIR = "processed_merge"
     process_all_csvs(RAW_CSVS_DIR, PREPROCESSED_CSVS_DIR)

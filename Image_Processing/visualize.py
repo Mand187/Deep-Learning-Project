@@ -8,13 +8,13 @@ import concurrent.futures # Added import
 
 
 # --- Configuration ---
-video_path = 'Image_Processing/visualization/michael_10s.mp4' # Relative path from script location
+video_path = 'Image_Processing/visualization/merge.mp4' # Relative path from script location
 prediction_path = 'Image_Processing/visualization/predictions.csv'
-output_path = 'Image_Processing/visualization/prediction_visualization_future.mp4' # Where to save the output video
+output_path = 'Image_Processing/visualization/merge_prediction.mp4' # Where to save the output video
 
 # ID 11 shows model does not predict car going off screen
 # ID 12 shows model failing to handle car just coming into detection range
-IDs_To_Visualize = list(range(17)) # IDs to visualize
+IDs_To_Visualize = [9, 11]
 
 frame_offset = 5
 
@@ -178,7 +178,7 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
 # Write processed frames to output video
 print("Writing processed frames to video...")
 for i in tqdm(range(num_frames_read), desc="Writing Video"):
-    if i < 100 - frame_offset:
+    if i < 100 - frame_offset-15:
         continue
     if processed_frames_ordered[i] is not None:
         out.write(processed_frames_ordered[i])
