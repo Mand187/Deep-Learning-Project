@@ -141,21 +141,21 @@
 
             {
                 [start chain, node distance=\NodeSpacing] % Added node distance for better spacing
-                \node [on chain, feature node, fill = red!30] (FA1) {\small Encoding A1}; % Applied 'feature node' style
-                \node [on chain, feature node, fill = blue!30] (FB1) {\small Encoding B1}; % Applied 'feature node' style
-                \node [on chain, feature node, fill = green!30] (FC1) {\small Encoding C1}; % Applied 'feature node' style
+                \node [on chain, feature node, fill = red!30] (FA1) {\small Car Encoding A1}; % Applied 'feature node' style
+                \node [on chain, feature node, fill = blue!30] (FB1) {\small Car Encoding B1}; % Applied 'feature node' style
+                \node [on chain, feature node, fill = green!30] (FC1) {\small Car Encoding C1}; % Applied 'feature node' style
                 \node [on chain] (Space) {};
-                \node [on chain, feature node, fill = red!30] (FA2) {\small Encoding A2}; % Applied 'feature node' style
-                \node [on chain, feature node, fill = blue!30] (FB2) {\small Encoding B2}; % Applied 'feature node' style
-                \node [on chain, feature node, fill = green!30] (FC2) {\small Encoding C2}; % Applied 'feature node' style
+                \node [on chain, feature node, fill = red!30] (FA2) {\small Car Encoding A2}; % Applied 'feature node' style
+                \node [on chain, feature node, fill = blue!30] (FB2) {\small Car Encoding B2}; % Applied 'feature node' style
+                \node [on chain, feature node, fill = green!30] (FC2) {\small Car Encoding C2}; % Applied 'feature node' style
             }
             % Box for Frame 1
-            \node[draw, thick, rounded corners, fit=(FA1) (FB1) (FC1), inner sep=22pt, label={[font=\large]above:Frame 1}] (Box1) {};
+            \node[draw, thick, rounded corners, fit=(FA1) (FB1) (FC1), inner sep=26pt, label={[font=\large]above:Frame 1}] (Box1) {};
             
             \draw[<->, thick] (FA1.north) to[bend left=45] (FB1.north);
             \draw[<->, thick] (FB1.north) to[bend left=45] (FC1.north);
             
-            \node[draw, thick, rounded corners, fit=(FA2) (FB2) (FC2), inner sep=22pt, label={[font=\large]above:Frame 2}] {};
+            \node[draw, thick, rounded corners, fit=(FA2) (FB2) (FC2), inner sep=26pt, label={[font=\large]above:Frame 2}] {};
             \draw[<->, thick] (FA2.north) to[bend left=45] (FB2.north);
             \draw[<->, thick] (FB2.north) to[bend left=45] (FC2.north);
 
@@ -177,9 +177,9 @@
 
             % Draw arrows between Car Embeddings
             % Correctly place node (1) at the midpoint of the curved arrowh);
-            \draw[<->, thick, color=red] (EA1.south) to[bend right=35] node[midway, name=1] {} (EA2.south);
-            \draw[<->, thick, color=blue] (EB1.south) to[bend right=35] node[midway, name=2] {} (EB2.south);
-            \draw[<->, thick, color=green] (EC1.south) to[bend right=35] node[midway, name=3] {} (EC2.south);
+            \draw[<->, thick, color=red] (EA1.south) to[bend right=25] node[midway, name=1] {} (EA2.south);
+            \draw[<->, thick, color=blue] (EB1.south) to[bend right=25] node[midway, name=2] {} (EB2.south);
+            \draw[<->, thick, color=green] (EC1.south) to[bend right=25] node[midway, name=3] {} (EC2.south);
 
 
             \node[embed node, below=\RowSpacing/2 of 1, fill=red!35] (SA1) {\small Seq Embedding A1};
@@ -190,23 +190,42 @@
             \draw[->, thick, color=blue] (2.south) to (SB1.north);
             \draw[->, thick, color=green] (3.south) to (SC1.north);
 
-            \node[draw, thick, rounded corners, below=\RowSpacing/4 of SA1] (1DC1) {\small 1D Convolution}; 
-            \node[draw, thick, rounded corners, below=\RowSpacing/4 of SB1] (1DC2) {\small 1D Convolution};
-            \node[draw, thick, rounded corners, below=\RowSpacing/4 of SC1] (1DC3) {\small 1D Convolution};
-            \draw[->, thick] (SA1.south) to (1DC1.north);
-            \draw[->, thick] (SB1.south) to (1DC2.north);
-            \draw[->, thick] (SC1.south) to (1DC3.north);
+            \node[below=\RowSpacing/2 of SA1] (CL) {};
+            \node[below=\RowSpacing/2 of SB1] (CC) {};
+            \node[below=\RowSpacing/2 of SC1] (CR) {};
 
-            \node[draw, thick, rounded corners, below=\RowSpacing/4 of 1DC1, fill=red!30] (PA) {\small Prediction A};
-            \node[draw, thick, rounded corners, below=\RowSpacing/4 of 1DC2, fill=blue!30] (PB) {\small Prediction B};
-            \node[draw, thick, rounded corners, below=\RowSpacing/4 of 1DC3, fill=green!30] (PC) {\small Prediction C};
-            \draw[->, thick] (1DC1.south) to (PA.north);
-            \draw[->, thick] (1DC2.south) to (PB.north);
-            \draw[->, thick] (1DC3.south) to (PC.north);
+            \node[draw, thick, rounded corners, fit=(CL) (CC) (CR), inner sep=10pt] (1DC) {};
+            \node (1dclabel) at (1DC.center) {Temporal Convolution};
+            % Modified arrow targets to point precisely to the top border of 1DC
+            \draw[->, thick] (SA1.south) to (CL |- 1DC.north); 
+            \draw[->, thick] (SB1.south) to (CC |- 1DC.north);
+            \draw[->, thick] (SC1.south) to (CR |- 1DC.north);
+            % Make second box the same size as the first
+
+            \node[below=\RowSpacing/1.5 of CL] (RL) {};
+            \node[below=\RowSpacing/1.5 of CC] (RC) {};
+            \node[below=\RowSpacing/1.5 of CR] (RR) {};
             
+            \node[draw, thick, rounded corners, fit=(RL) (RC) (RR), inner sep=10pt] (RH) {};
+            \node (2dclabel) at (RH.center) {Regression Head};
+            \draw[->, thick] (1DC.south) to (RH);
 
+            \node[below=\RowSpacing/2 of RL] (PNA) {};
+            \node[below=\RowSpacing/2 of RC] (PNB) {};
+            \node[below=\RowSpacing/2 of RR] (PNC) {};
+
+            \node[embed node, at=(PNA), fill=red!35] (PredA) {\small Prediction A};
+            \node[embed node, at=(PNB), fill=blue!35] (PredB) {\small Prediction B};
+            \node[embed node, at=(PNC), fill=green!35] (PredC) {\small Prediction C};
+            
+            \draw[->, thick] (RL |- RH.south) to (PredA.north);
+            \draw[->, thick] (RC |- RH.south) to (PredB.north);
+            \draw[->, thick] (RR |- RH.south) to (PredC.north);
+            
             
 
 \end{tikzpicture}
+
+\end{document}re}
 
 \end{document}
