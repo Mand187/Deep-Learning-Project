@@ -9,11 +9,13 @@ except ImportError:
     from tqdm import tqdm
 
 
-def compute_accuracy(predictions, targets, threshold=2.0):
+def compute_accuracy(predictions, targets, threshold=0.1):
     """
     Compute % of predictions within a Euclidean distance threshold of the ground truth.
     predictions, targets: [batch_size, pred_len, num_ids, 2]
     """
+    if predictions.shape != targets.shape:
+        raise ValueError(f"Shape mismatch: predictions {predictions.shape}, targets {targets.shape}")
     dist = torch.norm(predictions - targets, dim=-1)  # [batch, pred_len, num_ids]
     accurate = (dist < threshold).float()
     return accurate.mean().item() * 100  # percentage
@@ -40,7 +42,20 @@ class Trainer:
     def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None):
 
         if criterion is None:
-            criterion = nn.MSELoss()
+            criterion = nn.MSELoss(reduction='none')
+
+            def masked_loss(outputs, targets, mask):
+                loss = criterion(outputs, targets)
+                loss = loss * mask.unsqueeze(-1)  # Apply mask to the loss
+                return loss.mean()
+
+            def create_mask(targets, padding_value=0):
+                return (targets != padding_value).float()
+
+            # Wrap the criterion to include masking
+            def criterion(outputs, targets):
+                mask = create_mask(targets)
+                return masked_loss(outputs, targets, mask)
 
         if optimizer is None:
             optimizer = optim.Adam(self.model.parameters(), lr=learningRate)
@@ -54,6 +69,7 @@ class Trainer:
 
         total_start_time = time.time()
         pbar = tqdm(range(1, num_epochs + 1), desc="Training Progress")
+
 
         for epoch in pbar:
             epoch_start = time.time()
@@ -103,6 +119,7 @@ class Trainer:
                     inputs, targets = inputs.to(self.device), targets.to(self.device)
 
                     outputs = self.model(inputs)
+                    outputs = outputs.view_as(targets)
                     loss = criterion(outputs, targets)
                     val_loss += loss.item()
                     acc = compute_accuracy(outputs, targets)

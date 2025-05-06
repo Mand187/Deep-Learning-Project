@@ -3,6 +3,7 @@ import numpy as np
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
 from torchsummary import summary
+import torch
 
 
 def plotLoss(trainLosses, valLosses):
@@ -97,3 +98,48 @@ def computationalComplexity(model, input_size):
     # Assuming the model is a PyTorch model
     model = summary(model, input_size=input_size)
     print(model)
+
+def test_model(model, test_loader, loss_fn, device=None):
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    model.eval()
+    total_loss = 0.0
+    all_preds = []
+    all_targets = []
+
+    with torch.no_grad():
+        for inputs, targets in test_loader:
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+
+            # Forward pass
+            outputs = model(inputs)
+
+            # Compute batch loss
+            loss = loss_fn(outputs, targets)
+            total_loss += loss.item() * inputs.size(0)  # Weight by batch size
+
+            # Save predictions and actuals
+            all_preds.append(outputs.cpu())
+            all_targets.append(targets.cpu())
+
+    # Concatenate all batches
+    predicted = torch.cat(all_preds, dim=0).numpy()
+    actual = torch.cat(all_targets, dim=0).numpy()
+
+    # Metrics
+    test_loss = total_loss / len(test_loader.dataset)
+    print(f'Test Loss (MSE): {test_loss:.4f}')
+
+    displacement_errors = np.linalg.norm(predicted - actual, axis=-1)  # [batch, pred_len, num_ids]
+    ade = np.mean(displacement_errors)
+    rmse = np.sqrt(np.mean((predicted - actual) ** 2))
+
+    print(f'Average Displacement Error (ADE): {ade:.4f}')
+    print(f'Root Mean Squared Error (RMSE): {rmse:.4f}')
+
+    # Display some predictions
+    print("\nPredicted vs Actual (First 5 examples):")
+    print("Predicted:", predicted[:5])
+    print("Actual:   ", actual[:5])
