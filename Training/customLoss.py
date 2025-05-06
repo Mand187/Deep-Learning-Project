@@ -16,6 +16,26 @@ def lane_loss(predicted, lane_positions):
     
     return distance_to_lane / len(predicted)
 
+class PaddedMSELoss(nn.Module):
+    def __init__(self, reduction='mean'):
+        super(PaddedMSELoss, self).__init__()
+        self.reduction = reduction
+        self.mse = nn.MSELoss(reduction='none')
+    def forward(self, predictions, targets):
+        """
+        Calculate the Mean Squared Error (MSE) loss, ignoring padded values.
+        """
+        # Check if predictions and targets have the same shape
+        if predictions.shape != targets.shape:
+            raise ValueError("Predictions and targets must have the same shape.")
+        
+        # Create a mask for non-padded values
+        mask = (targets != -1).float()
+        
+        # Calculate MSE for non-padded values
+        mse = self.mse(predictions, targets) * mask
+        mse = mse.sum(dim=-1)  # Sum over the last dimension (x,y coordinates)
+        mse = mse.sum(dim=1)
 
 class ADELoss(nn.Module):
     def __init__(self, reduction='mean'):
@@ -27,10 +47,15 @@ class ADELoss(nn.Module):
         Calculate the Average Displacement Error.
         """
         # Calculate Euclidean distance (L2 norm) across the last dimension (x,y coordinates)
-        euclidean_distance = torch.norm(predictions - targets, p=2, dim=-1)
         
+        mask = (targets != -1).float()
+        
+        euclidean_distance = torch.norm(predictions - targets, p=2, dim=-1)
+        # Apply mask to ignore padded values
+        euclidean_distance = euclidean_distance * mask
         # Average over sequence length
         ade = euclidean_distance.mean(dim=1)  # average over sequence length (dim=1)
+        
         
         # Apply reduction
         if self.reduction == 'mean':
@@ -53,6 +78,10 @@ class FDELoss(nn.Module):
         
         # Calculate Euclidean distance (L2 norm)
         fde = torch.norm(final_predictions - final_targets, p=2, dim=-1)
+        
+        mask = (targets != -1).float()
+        # Apply mask to ignore padded values
+        fde = fde * mask[:, -1]
         
         # Apply reduction
         if self.reduction == 'mean':
