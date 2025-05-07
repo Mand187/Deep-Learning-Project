@@ -8,6 +8,7 @@ import torch.utils.data as data
 # from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 from torchtnt.utils.data import CudaDataPrefetcher
 from torchprofile import profile_macs
+from ..Training.customLoss import ADELoss, FDELoss, RMSELoss, PaddedMSELoss
 
 from sklearn.preprocessing import MinMaxScaler # , LabelEncoder, StandardScaler
 import pandas as pd
@@ -95,14 +96,14 @@ misc_fields_to_normalize = ['Height', 'Width']
 xy_fields_to_normalize = ['X', 'Y']
 
 # Normalize each coordinate column between 0 and 1
-# df[misc_fields_to_normalize] = misc_feature_scaler.fit_transform(df[misc_fields_to_normalize])
-# df[xy_fields_to_normalize] = xy_scaler.fit_transform(df[xy_fields_to_normalize])
+df[misc_fields_to_normalize] = misc_feature_scaler.fit_transform(df[misc_fields_to_normalize])
+df[xy_fields_to_normalize] = xy_scaler.fit_transform(df[xy_fields_to_normalize])
 
 # Normalize Frame field separately since we need to preserve original mapping
-# frame_scaler = MinMaxScaler(feature_range=(0, 5))
-# original_frames = df['Frame'].values.reshape(-1, 1)
-# normalized_frames = frame_scaler.fit_transform(original_frames)
-# df['Frame'] = normalized_frames
+frame_scaler = MinMaxScaler(feature_range=(0, 5))
+original_frames = df['Frame'].values.reshape(-1, 1)
+normalized_frames = frame_scaler.fit_transform(original_frames)
+df['Frame'] = normalized_frames
 
 # Function to get original frame value from normalized value
 # def get_original_frame(normalized_frame):
@@ -115,7 +116,7 @@ print(f"X range: {df['X'].min():.4f} to {df['X'].max():.4f}")
 print(f"Y range: {df['Y'].min():.4f} to {df['Y'].max():.4f}")
 print(f"Height range: {df['Height'].min():.4f} to {df['Height'].max():.4f}")
 print(f"Width range: {df['Width'].min():.4f} to {df['Width'].max():.4f}")
-# print(f"Frame range: {df['Frame'].min():.4f} to {df['Frame'].max():.4f}")
+print(f"Frame range: {df['Frame'].min():.4f} to {df['Frame'].max():.4f}")
 
 # ================================ CREATE TENSOR FROM CSV DATA ======================================
 # Desired Output Shape: [CSV, Sequence/Frame, ID (Padded), features (Frame, X, Y, Width, Height)]
@@ -343,7 +344,7 @@ print(f"Model size: {total_params * 4 / (1024 * 1024):.2f} MB (assuming float32)
 
 # * Training Loop Reinitialization
 epochIterator:int = 0
-bestTestAccuracy:float = 0
+bestTestLoss:float = -1
 
 avgTrainBatchLossPerEpoch:list = []
 avgTestBatchLossPerEpoch:list = []
@@ -383,13 +384,15 @@ signal.signal(signal.SIGINT, signal_handler)
 def linearOffset(input, offset, target):
     # max() ensures offset is always positive or 0
     # min() returns the smaller offset between target - input and default offset
-    return max(0, min(offset, target - input))
+    if offset >= 0: return max(0, min(offset, target - input))
+    
+    # min() ensures offset is always negative or 0
+    # max() returns the larger offset between target - input and default offset
+    else: return min(0, max(offset, target - input))
 
 
 Loss_Function:nn.CrossEntropyLoss = nn.CrossEntropyLoss()
-# Optimizer_Function:torch.optim.Adam = torch.optim.Adam(params=model.parameters())
-# Optimizer_Function:torch.optim.SGD = torch.optim.SGD(params=model.parameters(),
-#                                                      lr=0.0001)
+
 Optimizer_Function:torch.optim.Adam = torch.optim.Adam(
     params=model.parameters(),
     lr=0.001,
@@ -400,15 +403,18 @@ Optimizer_Function:torch.optim.Adam = torch.optim.Adam(
 
 EPOCHS:int = 50
 
-MINIMUM_TEST_ACCURACY:int = 0
+MAXIMUM_TEST_LOSS:int = 0
 SAVE_CHECKPOINTS:bool = False
 
 trainStartTime:float = time.time()
-while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpochAccuracy < testEpochAccuracy + linearOffset(input=testEpochAccuracy, offset=3, target=99) or bestTestAccuracy < MINIMUM_TEST_ACCURACY):
+
+trainEpochAverageBatchLoss:float
+testEpochAverageBatchLoss:float
+
+while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpochAverageBatchLoss > testEpochAverageBatchLoss + linearOffset(input=testEpochAverageBatchLoss, offset=-3, target=1) or bestTestLoss > MAXIMUM_TEST_LOSS):
     epochStartTime:float = time.time()
     model.train()
     
-    numCorrectInEpoch:int = 0
     totalTrainLossInEpoch:float = 0
     for X_train_batch, Y_train_batch in train_prefetcher:
         X_train_batch:torch.Tensor = X_train_batch.to(DEVICE, non_blocking=True)
@@ -416,13 +422,12 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
         
         Y_train_pred_logits:torch.Tensor = model(X_train_batch)
         
-        trainBatchLoss = Loss_Function(Y_train_pred_logits, Y_train_batch.type(torch.int64))
+        trainBatchLoss = Loss_Function(Y_train_pred_logits, Y_train_batch)
         
         Optimizer_Function.zero_grad()
         trainBatchLoss.backward()
         Optimizer_Function.step()
         
-        numCorrectInEpoch += torch.eq(Y_train_pred_logits.argmax(dim=1), Y_train_batch).sum().item()
         totalTrainLossInEpoch += trainBatchLoss
         
     
@@ -432,10 +437,6 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
         trainEpochAverageBatchLoss:float = totalTrainLossInEpoch/len(train_loader)
         avgTrainBatchLossPerEpoch += [trainEpochAverageBatchLoss]
         
-        trainEpochAccuracy:float = numCorrectInEpoch/len(train_loader.dataset) * 100 # accuracy is calculated per item in a batch instead of per batch
-        trainAccuracyPerEpoch += [trainEpochAccuracy]
-        
-        numCorrectInEpoch:int = 0
         totalTestLossInEpoch:float = 0
         for X_test_batch, Y_test_batch in test_prefetcher:
             X_test_batch:torch.Tensor = X_test_batch.to(DEVICE, non_blocking=True)
@@ -443,25 +444,21 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
         
             Y_test_pred_logits:torch.Tensor = model(X_test_batch)
         
-            testBatchLoss = Loss_Function(Y_test_pred_logits, Y_test_batch.type(torch.int64))
+            testBatchLoss = Loss_Function(Y_test_pred_logits, Y_test_batch)
     
-            numCorrectInEpoch += torch.eq(Y_test_pred_logits.argmax(dim=1), Y_test_batch).sum().item()
-            
             totalTestLossInEpoch += testBatchLoss
         
         testEpochAverageBatchLoss:float = totalTestLossInEpoch/len(test_loader)
         avgTestBatchLossPerEpoch += [testEpochAverageBatchLoss]
         
-        testEpochAccuracy:float = numCorrectInEpoch/len(test_loader.dataset) * 100
-        testAccuracyPerEpoch += [testEpochAccuracy]
-    
         epochTime:float = time.time() - epochStartTime
         estRemainingTime:float = (EPOCHS - epochIterator - 1)*epochTime / 60
-        print(f"epoch: {epochIterator} \t| train loss: {trainEpochAverageBatchLoss:.5f}, train accuracy: {trainEpochAccuracy:.2f}% \t| test loss: {testEpochAverageBatchLoss:.5f}, test accuracy: {testEpochAccuracy:.2f}% \t| TTG: {int(estRemainingTime):02}:{int((estRemainingTime - int(estRemainingTime))*60):02}")
         
-        newBestModel:bool = testEpochAccuracy > MINIMUM_TEST_ACCURACY and testEpochAccuracy > bestTestAccuracy
+        print(f"\repoch: {epochIterator} \t| train loss: {trainEpochAverageBatchLoss:.5f} \t| test loss: {testEpochAverageBatchLoss:.5f} \t| TTG: {int(estRemainingTime):02}:{int((estRemainingTime - int(estRemainingTime))*60):02}", end='', flush=True)
+        
+        newBestModel:bool = testEpochAverageBatchLoss < MAXIMUM_TEST_LOSS and testEpochAverageBatchLoss < bestTestLoss or bestTestLoss == -1
         if newBestModel: 
-            bestTestAccuracy:float = testEpochAccuracy
+            bestTestLoss:float = testEpochAverageBatchLoss
             print(f"↑↑↑↑↑↑↑↑↑↑↑↑↑ NEW BEST MODEL ↑↑↑↑↑↑↑↑↑↑↑↑↑")
             
         if SAVE_CHECKPOINTS and newBestModel: 
@@ -475,8 +472,6 @@ averageEpochTime:float = totalTrainTime / epochIterator
 
 print(f"Total Training Time: {int(totalTrainTime):02}:{int((totalTrainTime - int(totalTrainTime))*60):02}")
 print(f"Average Epoch Time: {int(averageEpochTime):02}:{int((averageEpochTime - int(averageEpochTime))*60):02}")
-print(f"({model.PATCH_SIZE}x{model.PATCH_SIZE}) -- {model.EMBEDDING_SIZE} -- ({model.NUM_LAYERS},{model.NUM_HEADS})")
-        
 # %%
 # ===============================================================================================================
 #                                                   Plot Loss
@@ -485,29 +480,20 @@ with torch.inference_mode():
     avgTrainBatchLossPerEpoch1:list = torch.tensor(avgTrainBatchLossPerEpoch).cpu()
     avgTestBatchLossPerEpoch1:list = torch.tensor(avgTestBatchLossPerEpoch).cpu()
     
-    # Create subplots
-    fig, axs = plt.subplots(1, 2, figsize=(10, 5))  # 1 row, 2 columns
+    # Create single plot
+    plt.figure(figsize=(8, 5))
+    
+    # Plot training and test loss
+    plt.scatter(x=[x for x in range(len(avgTrainBatchLossPerEpoch1))], y=avgTrainBatchLossPerEpoch1, label="Training Loss")
+    plt.scatter(x=[x for x in range(len(avgTestBatchLossPerEpoch1))], y=avgTestBatchLossPerEpoch1, label="Test / Validation Loss")
+    plt.title('Loss Per Epoch')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.gca().xaxis.set_major_locator(plt.MaxNLocator(integer=True))
 
-    # First subplot
-    axs[0].scatter(x=[x for x in range(len(avgTrainBatchLossPerEpoch1))], y=avgTrainBatchLossPerEpoch1, label="Training Loss")
-    axs[0].scatter(x=[x for x in range(len(avgTestBatchLossPerEpoch1))], y=avgTestBatchLossPerEpoch1, label="Test / Validation Loss")
-    axs[0].set_title('Loss Per Epoch')
-    axs[0].set_xlabel('Epoch')
-    axs[0].set_ylabel('Loss')
-    axs[0].legend()
-    axs[0].xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-
-    # Second subplot
-    axs[1].scatter(x=[x for x in range(len(trainAccuracyPerEpoch))], y=trainAccuracyPerEpoch, label="Training Accuracy")
-    axs[1].scatter(x=[x for x in range(len(testAccuracyPerEpoch))], y=testAccuracyPerEpoch, label="Test / Validation Accuracy")
-    axs[1].set_title('Accuracy Per Epoch')
-    axs[1].set_xlabel('Epoch')
-    axs[1].set_ylabel('Accuracy %')
-    axs[1].legend()
-    axs[1].xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-
-    # Adjust layout and display the plot
-    plt.tight_layout()  # Avoid overlap between subplots
+    # Display the plot
+    plt.tight_layout()
     plt.plot()
     plt.show()
     

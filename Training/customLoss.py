@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from ..config import PADDING_TOKEN
+
 # Lane-aware loss function
 def lane_loss(predicted, lane_positions, mask=None):
     distance_to_lane = 0
@@ -19,27 +21,6 @@ def lane_loss(predicted, lane_positions, mask=None):
         valid_count += 1
     
     return distance_to_lane / valid_count if valid_count > 0 else 0
-
-class PaddedMSELoss(nn.Module):
-    def __init__(self, reduction='mean'):
-        super(PaddedMSELoss, self).__init__()
-        self.reduction = reduction
-        self.mse = nn.MSELoss(reduction='none')
-    def forward(self, predictions, targets):
-        """
-        Calculate the Mean Squared Error (MSE) loss, ignoring padded values.
-        """
-        # Check if predictions and targets have the same shape
-        if predictions.shape != targets.shape:
-            raise ValueError("Predictions and targets must have the same shape.")
-        
-        # Create a mask for non-padded values
-        mask = (targets != -1).float()
-        
-        # Calculate MSE for non-padded values
-        mse = self.mse(predictions, targets) * mask
-        mse = mse.sum(dim=-1)  # Sum over the last dimension (x,y coordinates)
-        mse = mse.sum(dim=1)
 
 class ADELoss(nn.Module):
     def __init__(self, reduction='mean'):
@@ -63,7 +44,7 @@ class ADELoss(nn.Module):
         # A target point (e.g., x,y coordinates) is considered valid if all its features are not -1.
         # valid_mask will be a boolean tensor of shape (batch_size, sequence_length).
         # It's True for non-padded time steps, False for padded ones.
-        valid_mask = (targets != -1).all(dim=-1)
+        valid_mask = (targets != PADDING_TOKEN).all(dim=-1)
         
         # Apply the mask to the distances.
         # For padded entries (where mask is False), their contribution to ADE will be 0.
@@ -118,7 +99,7 @@ class FDELoss(nn.Module):
         # A final target point (e.g., x,y coordinates) is considered valid if all its features are not -1.
         # valid_mask_final_targets will be a boolean tensor of shape (batch_size).
         # It's True for samples where the final target is not padded, False otherwise.
-        valid_mask_final_targets = (final_targets != -1).all(dim=-1)
+        valid_mask_final_targets = (final_targets != PADDING_TOKEN).all(dim=-1)
         
         # Apply the mask to the distances.
         # For padded entries (where mask is False), their contribution to FDE will be 0.
@@ -137,43 +118,15 @@ class FDELoss(nn.Module):
         else:  # 'none'
             return fde_per_sample
 
-
 class RMSELoss(nn.Module):
     def __init__(self, reduction='mean'):
         super(RMSELoss, self).__init__()
-        self.reduction = reduction
-        self.mse = nn.MSELoss(reduction='none')
+        self.mse_loss = PaddedMSELoss(reduction=reduction)
         
-    def forward(self, predictions, targets, mask=None):
-        # Calculate squared error for each element
-        squared_error = self.mse(predictions, targets)
-        
-        if mask is not None:
-            squared_error = squared_error * mask.unsqueeze(-1)  # Apply mask
-            valid_count = mask.sum(dim=1)  # Count valid elements per batch
-        else:
-            valid_count = predictions.size(1)  # Sequence length
-        
-        # For trajectory data, we often want to calculate RMSE across coordinate dimensions
-        if predictions.dim() >= 3:
-            # Sum over coordinate dimensions (last dim)
-            squared_error = squared_error.sum(dim=-1)
-            
-            # Mean over sequence length
-            mse = squared_error.sum(dim=1) / valid_count
-        else:
-            mse = squared_error.mean(dim=tuple(range(1, squared_error.dim())))
-        
-        # Take square root
-        rmse = torch.sqrt(mse)
-        
-        # Apply reduction
-        if self.reduction == 'mean':
-            return rmse.mean()
-        elif self.reduction == 'sum':
-            return rmse.sum()
-        else:  # 'none'
-            return rmse
+    def forward(self, predictions, targets):
+        # Compute MSE loss and take the square root
+        mse = self.mse_loss(predictions, targets)
+        return torch.sqrt(mse)
         
 class PaddedMSELoss(nn.Module):
     def __init__(self, reduction='mean'):
@@ -184,21 +137,15 @@ class PaddedMSELoss(nn.Module):
         """
         Calculate the Mean Squared Error (MSE) loss, ignoring padded values.
         """
+        
         # Check if predictions and targets have the same shape
         if predictions.shape != targets.shape:
             raise ValueError("Predictions and targets must have the same shape.")
         
         # Create a mask for non-padded values
-        mask = (targets != -1).float()
+        mask = (targets != PADDING_TOKEN).float()
         
         # Calculate MSE for non-padded values
         mse = self.mse(predictions, targets) * mask
+        mse = mse.sum(dim=-1)  # Sum over the last dimension (x,y coordinates)
         mse = mse.sum(dim=1)
-        
-        # Return the mean or sum of the loss based on the reduction method
-        if self.reduction == 'mean':
-            return mse.mean()
-        elif self.reduction == 'sum':
-            return mse.sum()
-        else:  # 'none'
-            return mse
