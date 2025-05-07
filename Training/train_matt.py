@@ -1,8 +1,10 @@
 import time
 import torch
+import matplotlib.pyplot as plt
 import torch.nn as nn
 import torch.optim as optim
 import os
+import concurrent.futures
 
 try:
     from tqdm.notebook import tqdm
@@ -10,22 +12,13 @@ except ImportError:
     from tqdm import tqdm
 
 
-def compute_accuracy(predictions, targets, threshold=0.1):
-    """
-    Compute % of predictions within a Euclidean distance threshold of the ground truth.
-    predictions, targets: [batch_size, pred_len, num_ids, 2]
-    """
-    if predictions.shape != targets.shape:
-        raise ValueError(f"Shape mismatch: predictions {predictions.shape}, targets {targets.shape}")
-    dist = torch.norm(predictions - targets, dim=-1)  # [batch, pred_len, num_ids]
-    accurate = (dist < threshold).float()
-    return accurate.mean().item() * 100  # percentage
-
 
 class Trainer:
-    def __init__(self, model, trainLoader, testLoader, model_path, model_name, plot_path='.', device=None):
+    def __init__(self, model, trainLoader, testLoader, save_path, model_name, plot_path='.', device=None):
+        self.best_model_file_path = None
+        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
         self.model = model
-        self.model_path = model_path
+        self.save_path = save_path
         self.plot_path = plot_path
         self.model_name = model_name
         self.trainLoader = trainLoader
@@ -37,6 +30,12 @@ class Trainer:
         self.use_early_stopping = False
         self.patience = 10
         self.delta = 0.0
+        
+        self.model_path = os.path.join(self.save_path, self.model_name)
+        os.makedirs(self.model_path, exist_ok=True)
+        print(f"Model path: {self.model_path}")
+        self.train_losses = []
+        self.val_losses = []
 
     def earlyStop(self, enable=True, patience=10, delta=0.0):
         self.use_early_stopping = enable
@@ -68,7 +67,6 @@ class Trainer:
         patience_counter = 0
 
         self.train_losses, self.val_losses = [], []
-        train_accs, val_accs = [], []
         epoch_times = []
 
         total_start_time = time.time()
@@ -77,10 +75,11 @@ class Trainer:
 
         for epoch in pbar:
             epoch_start = time.time()
+            running_loss = 0.0  # Initialize for the current epoch
+            val_loss = 0.0      # Initialize for the current epoch
 
             # --- Training ---
             self.model.train()
-            running_loss, running_acc = 0.0, 0.0
 
             train_iterator = tqdm(
                 self.trainLoader,
@@ -98,19 +97,15 @@ class Trainer:
                 optimizer.step()
 
                 running_loss += loss.item()
-                acc = 0# compute_accuracy(outputs.detach(), targets)
-                running_acc += acc
 
                 train_iterator.set_postfix({"batch loss": f"{loss.item():.4f}"})
 
             train_loss = running_loss / len(self.trainLoader.data_iterable)
-            train_acc = 0#running_acc / len(self.trainLoader.data_iterable)
             self.train_losses.append(train_loss)
-            #train_accs.append(train_acc)
 
             # --- Validation ---
             self.model.eval()
-            val_loss, val_acc_total = 0.0, 0.0
+            
 
             val_iterator = tqdm(
                 self.testLoader,
@@ -126,15 +121,13 @@ class Trainer:
                     outputs = outputs.view_as(targets)
                     loss = criterion(outputs, targets)
                     val_loss += loss.item()
-                    acc = compute_accuracy(outputs, targets)
-                    val_acc_total += acc
+
 
                     val_iterator.set_postfix({"batch loss": f"{loss.item():.4f}"})
 
             val_loss /= len(self.testLoader.data_iterable)
-            val_acc = val_acc_total / len(self.testLoader.data_iterable)
+
             self.val_losses.append(val_loss)
-            val_accs.append(val_acc)
 
             # Calculate epoch time and append to list
             epoch_time = time.time() - epoch_start
@@ -143,9 +136,7 @@ class Trainer:
             # Update main progress bar
             pbar.set_postfix({
                 "Train Loss": f"{train_loss:.4f}",
-                "Train Acc": f"{train_acc:.2f}%",
                 "Val Loss": f"{val_loss:.4f}",
-                "Val Acc": f"{val_acc:.2f}%",
                 "Time": f"{epoch_time:.2f}s"
             })
 
@@ -154,7 +145,7 @@ class Trainer:
                 if val_loss < best_val_loss - self.delta:
                     best_val_loss = val_loss
                     patience_counter = 0
-                    self.save_model(self.model, self.model_path)
+                    self.save_model(epoch)
                     print(f"Best validation loss so far: {best_val_loss:.4f}")
                 else:
                     patience_counter += 1
@@ -172,23 +163,35 @@ class Trainer:
         print(f"Inference time per batch: {(total_time / epoch / len(self.trainLoader.data_iterable)):.2f} seconds")
         print(f"Final Training Loss: {self.train_losses[-1]:.4f}")
         print(f"Final Validation Loss: {self.val_losses[-1]:.4f}")
-        print(f"Final Training Accuracy: {train_accs[-1]:.2f}%")
-        print(f"Final Validation Accuracy: {val_accs[-1]:.2f}%")
+
+
         
-        torch.save(self.model, self.model_path)
+        self.save_model(epoch)
         self.plot_losses()
+        
+        self.pool.shutdown(wait=True)
+        
+        return self.train_losses, self.val_losses, epoch_times
 
-        return self.train_losses, self.val_losses, train_accs, val_accs, epoch_times
 
-    def save_model(self, *args, **kwargs):
+
+    def save_model(self, epoch, *args, **kwargs):
         """Save the model to a file"""
-        print(f"Saving model to {self.model_path}")
-        torch.save(self.model, self.model_path)
+        self.best_model_file_path = os.path.join(self.model_path, f"{self.model_name}_epoch_{epoch}.pth")
+        print(f"Saving model to {self.best_model_file_path}")
+        # self.pool.submit(
+        #     torch.save,
+        #     self.model,
+        #     self.best_model_file_path,
+        #     *args,
+        #     **kwargs
+        # )
+        torch.save(self.model, self.best_model_file_path)
     def plot_losses(self):
         plot_filepath = os.path.join(self.plot_path, f"{self.model_name}_losses.png")
         print(f"Plotting losses to {plot_filepath}")
         print(f"Saving losses to {self.model_name}_losses.png")
-        import matplotlib.pyplot as plt
+        
         plt.figure(figsize=(10, 5))
         plt.plot(self.train_losses, label='Training Loss')
         plt.plot(self.val_losses, label='Validation Loss')
@@ -203,4 +206,24 @@ class Trainer:
         plt.close()
         print(f"Plot saved to {plot_filepath}")
         #plt.close()
+    def test_model(self, losses):
+        if self.best_model_file_path is not None:
+            del self.model
+            self.model = torch.load(self.best_model_file_path).to(self.device)
+        
+        self.model.eval()
+        total_losses = torch.zeros(len(losses))
+        with torch.no_grad():
+            for inputs, targets in self.testLoader:
+                inputs, targets = inputs.to(self.device), targets.to(self.device)
+                outputs = self.model(inputs)
+                
+                for i, loss_fn in enumerate(losses):
+                    loss = loss_fn(outputs, targets)
+                    total_losses[i] += loss.item()
+
+
+        total_loss = total_losses / len(self.testLoader.data_iterable)
+        print(f"Test Losses: {total_loss}")
+        return total_loss
 

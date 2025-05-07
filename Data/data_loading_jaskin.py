@@ -131,7 +131,7 @@ def create_tensor_from_dataframe(df, transformer_max_ids_per_frame): # Keep arg 
     return all_data_tensor, len(features)
 
 
-def create_sequences(all_data_tensor, sequence_offset = 1):
+def create_sequences(all_data_tensor, sequence_offset = 1, sequence_length=SEQUENCE_LENGTH, prediction_length=PREDICTION_LENGTH):
     """Create input-output sequences from tensor data"""
     X = []
     Y = []
@@ -139,11 +139,11 @@ def create_sequences(all_data_tensor, sequence_offset = 1):
     for csv_idx in range(all_data_tensor.shape[0]):
         csv_data = all_data_tensor[csv_idx]  # [Sequence, ID, Features]
         
-        for i in range(0, len(csv_data) - SEQUENCE_LENGTH - PREDICTION_LENGTH + 1, sequence_offset):
+        for i in range(0, len(csv_data) - sequence_length - prediction_length + 1, sequence_offset):
             # Input sequence (SEQUENCE_LENGTH frames)
-            x_seq = csv_data[i:i+SEQUENCE_LENGTH]
+            x_seq = csv_data[i:i+sequence_length]
             # Target sequence (next PREDICTION_LENGTH frames) - Only include X and Y features (indices 1 and 2)
-            y_seq = csv_data[i+SEQUENCE_LENGTH:i+SEQUENCE_LENGTH+PREDICTION_LENGTH, :, :2]  # Slice to get X and Y only
+            y_seq = csv_data[i+sequence_length:i+sequence_length+prediction_length, :, :2]  # Slice to get X and Y only
             # print(x_seq.shape)
             X.append(x_seq)
             Y.append(y_seq)
@@ -218,21 +218,8 @@ def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES):
         num_workers=NUM_WORKERS, 
         prefetch_factor=NUM_BATCHES_TO_PREFETCH if NUM_WORKERS > 0 else None, 
         pin_memory=True
-    )
-    
-    train_prefetcher = CudaDataPrefetcher(
-        data_iterable=train_loader, 
-        device=DEVICE, 
-        num_prefetch_batches=NUM_BATCHES_TO_PREFETCH
-    )
-    
-    test_prefetcher = CudaDataPrefetcher(
-        data_iterable=test_loader, 
-        device=DEVICE, 
-        num_prefetch_batches=NUM_BATCHES_TO_PREFETCH
-    )
-    
-    return train_loader, test_loader, train_prefetcher, test_prefetcher
+    )  
+    return train_loader, test_loader
 
 
 def get_original_frame(normalized_frame, frame_scaler):

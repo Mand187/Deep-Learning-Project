@@ -1,11 +1,3 @@
-# %% [markdown]
-# # Testing Notebook
-
-# %% [markdown]
-# # Ignore Trainig and Validation Accuracy, those are not objective truth measruements they are more just a guage to see how far the model is from the actual postion of the car
-# # Also ignore those metrics for the funciton reportFinalMetrics
-
-
 import config as cfg
 import os
 
@@ -35,7 +27,7 @@ model_dir = os.path.join(root_dir, 'Model')
 save_model_dir = os.path.join(model_dir, 'Saved_Model')
 print("Model directory: ", model_dir)
 print("Saved model directory: ", save_model_dir)
-model_name = 'fde_model_5s.pth'
+model_name = 'ade_model_1s.pth'
 
 
 # %%
@@ -48,17 +40,17 @@ PADDEDMSE = PaddedMSELoss()
 criterion = FDE
 
 # %%
-df, transformer_max_ids_per_frame, frame_scaler, feature_scaler = load_and_preprocess_data(csv_folder=csv_dir)
+df, transformer_max_ids_per_frame, = load_and_preprocess_data(csv_folder=csv_dir)
 
 # 2. Create tensor from dataframe
-all_data_tensor = create_tensor_from_dataframe(df, transformer_max_ids_per_frame)
+all_data_tensor, num_features = create_tensor_from_dataframe(df, transformer_max_ids_per_frame)
 
 # 3. Create input-output sequences
 X, Y = create_sequences(all_data_tensor)
 
 # 4. Create dataloaders for training and testing
-train_loader, test_loader, train_prefetcher, test_prefetcher = create_dataloaders(X, Y)
-
+train_loader, test_loader, train_prefetcher, test_prefetcher = create_dataloaders(X, Y, num_features=num_features)
+print("done data loading")
 # %% [markdown]
 # # MSE
 
@@ -107,7 +99,6 @@ test_model(
     model,
     test_loader,
     criterion,
-    feature_scaler,
     device=cfg.DEVICE
 )
 
