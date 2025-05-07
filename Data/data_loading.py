@@ -169,7 +169,7 @@ def create_sequences(all_data_tensor):
             x_seq = csv_data[i:i+SEQUENCE_LENGTH]
             # Target sequence (next PREDICTION_LENGTH frames) - Only include X and Y features (indices 1 and 2)
             y_seq = csv_data[i+SEQUENCE_LENGTH:i+SEQUENCE_LENGTH+PREDICTION_LENGTH, :, 1:3]  # Slice to get X and Y only
-            
+            print(x_seq.shape)
             X.append(x_seq)
             Y.append(y_seq)
     

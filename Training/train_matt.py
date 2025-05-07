@@ -22,9 +22,10 @@ def compute_accuracy(predictions, targets, threshold=0.1):
 
 
 class Trainer:
-    def __init__(self, model, trainLoader, testLoader, model_path, device=None):
+    def __init__(self, model, trainLoader, testLoader, model_path, model_name, device=None):
         self.model = model
         self.model_path = model_path
+        self.model_name = model_name
         self.trainLoader = trainLoader
         self.testLoader = testLoader
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -64,7 +65,7 @@ class Trainer:
         best_val_loss = float('inf')
         patience_counter = 0
 
-        train_losses, val_losses = [], []
+        self.train_losses, self.val_losses = [], []
         train_accs, val_accs = [], []
         epoch_times = []
 
@@ -95,15 +96,15 @@ class Trainer:
                 optimizer.step()
 
                 running_loss += loss.item()
-                acc = compute_accuracy(outputs.detach(), targets)
+                acc = 0# compute_accuracy(outputs.detach(), targets)
                 running_acc += acc
 
                 train_iterator.set_postfix({"batch loss": f"{loss.item():.4f}"})
 
             train_loss = running_loss / len(self.trainLoader.data_iterable)
-            train_acc = running_acc / len(self.trainLoader.data_iterable)
-            train_losses.append(train_loss)
-            train_accs.append(train_acc)
+            train_acc = 0#running_acc / len(self.trainLoader.data_iterable)
+            self.train_losses.append(train_loss)
+            #train_accs.append(train_acc)
 
             # --- Validation ---
             self.model.eval()
@@ -130,7 +131,7 @@ class Trainer:
 
             val_loss /= len(self.testLoader.data_iterable)
             val_acc = val_acc_total / len(self.testLoader.data_iterable)
-            val_losses.append(val_loss)
+            self.val_losses.append(val_loss)
             val_accs.append(val_acc)
 
             # Calculate epoch time and append to list
@@ -167,17 +168,31 @@ class Trainer:
             print(f"Total epochs run: {epoch}")
         print(f"Average time per epoch: {(total_time / epoch):.2f} seconds")
         print(f"Inference time per batch: {(total_time / epoch / len(self.trainLoader.data_iterable)):.2f} seconds")
-        print(f"Final Training Loss: {train_losses[-1]:.4f}")
-        print(f"Final Validation Loss: {val_losses[-1]:.4f}")
+        print(f"Final Training Loss: {self.train_losses[-1]:.4f}")
+        print(f"Final Validation Loss: {self.val_losses[-1]:.4f}")
         print(f"Final Training Accuracy: {train_accs[-1]:.2f}%")
         print(f"Final Validation Accuracy: {val_accs[-1]:.2f}%")
         
         torch.save(self.model, self.model_path)
+        self.plot_losses()
 
-        return train_losses, val_losses, train_accs, val_accs, epoch_times
+        return self.train_losses, self.val_losses, train_accs, val_accs, epoch_times
 
     def save_model(self, *args, **kwargs):
         """Save the model to a file"""
         print(f"Saving model to {self.model_path}")
         torch.save(self.model, self.model_path)
+    def plot_losses(self):
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(10, 5))
+        plt.plot(self.train_losses, label='Training Loss')
+        plt.plot(self.val_losses, label='Validation Loss')
+        plt.title(f'Training and Validation Loss For {self.model_name}')
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.grid(True)
+        #plt.show()
+        plt.savefig(f"{self.model_name}_losses.png")
+        #plt.close()
 

@@ -45,29 +45,55 @@ class ADELoss(nn.Module):
     def __init__(self, reduction='mean'):
         super(ADELoss, self).__init__()
         self.reduction = reduction
-        
-    def forward(self, predictions, targets, mask=None):
+    def forward(self, predictions, targets):
         """
-        Calculate the Average Displacement Error.
+        Calculate the Average Displacement Error (ADE), ignoring padded values.
+        predictions: (batch_size, sequence_length, num_features) e.g., (B, T, 2)
+        targets: (batch_size, sequence_length, num_features) e.g., (B, T, 2)
         """
+        # Check if predictions and targets have the same shape
+        if predictions.shape != targets.shape:
+            raise ValueError("Predictions and targets must have the same shape.")
+
         # Calculate Euclidean distance (L2 norm) across the last dimension (x,y coordinates)
+        # euclidean_distance will have shape (batch_size, sequence_length)
+        euclidean_distance = torch.linalg.vector_norm(predictions - targets, dim=-1)
+
+        # Create a mask for valid (non-padded) target values.
+        # A target point (e.g., x,y coordinates) is considered valid if all its features are not -1.
+        # valid_mask will be a boolean tensor of shape (batch_size, sequence_length).
+        # It's True for non-padded time steps, False for padded ones.
+        valid_mask = (targets != -1).all(dim=-1)
         
-        mask = (targets != -1).float()
+        # Apply the mask to the distances.
+        # For padded entries (where mask is False), their contribution to ADE will be 0.
+        # masked_euclidean_distance will have shape (batch_size, sequence_length)
+        masked_euclidean_distance = euclidean_distance * valid_mask.float()
         
-        euclidean_distance = torch.norm(predictions - targets, p=2, dim=-1)
-        # Apply mask to ignore padded values
-        euclidean_distance = euclidean_distance * mask
-        # Average over sequence length
-        ade = euclidean_distance.sum(dim=1) #/ valid_count  # average over sequence length (dim=1)
+        # Sum the distances over the sequence length for each sample.
+        # sum_distances_per_sample will have shape (batch_size)
+        sum_distances_per_sample = masked_euclidean_distance.sum(dim=1)
         
+        # Count the number of valid (non-padded) time steps for each sample.
+        # num_valid_timesteps_per_sample will have shape (batch_size)
+        num_valid_timesteps_per_sample = valid_mask.sum(dim=1).float()
+        
+        # Calculate ADE for each sample.
+        # If num_valid_timesteps_per_sample is 0 for a sample, ade_per_sample for that sample will be 0.
+        # clamp(min=1.0) prevents division by zero, resulting in 0.0 / 1.0 = 0.0 for fully padded sequences.
+        ade_per_sample = sum_distances_per_sample / num_valid_timesteps_per_sample.clamp(min=1.0)
         
         # Apply reduction
         if self.reduction == 'mean':
-            return ade.mean()
+            # Calculate the mean ADE over samples that have at least one valid timestep.
+            # If all samples are fully padded, num_valid_samples will be 0, and the mean will be 0.
+            num_valid_samples = (num_valid_timesteps_per_sample > 0).sum().float().clamp(min=1.0)
+            return ade_per_sample.sum() / num_valid_samples
         elif self.reduction == 'sum':
-            return ade.sum()
+            return ade_per_sample.sum()
         else:  # 'none'
-            return ade
+            return ade_per_sample
+    
 
 
 class FDELoss(nn.Module):
@@ -75,30 +101,41 @@ class FDELoss(nn.Module):
         super(FDELoss, self).__init__()
         self.reduction = reduction
         
-    def forward(self, predictions, targets, mask=None):
-        # Get the final positions (last timestep)
-        final_predictions = predictions[:, -1]  # (batch_size, num_agents, 2) or (batch_size, 2)
-        final_targets = targets[:, -1]  # (batch_size, num_agents, 2) or (batch_size, 2)
+    def forward(self, predictions, targets):
+        # predictions: (batch_size, sequence_length, num_features) e.g., (B, T, 2)
+        # targets: (batch_size, sequence_length, num_features) e.g., (B, T, 2)
+
+        # Get the final predicted positions and target positions
+        # These will have shape (batch_size, num_features)
+        final_predictions = predictions[:, -1]
+        final_targets = targets[:, -1]
+
+        # Calculate the Euclidean distance (L2 norm) between final predicted and target positions
+        # This will result in a tensor of shape (batch_size)
+        euclidean_distance_final_points = torch.linalg.vector_norm(final_predictions - final_targets, dim=-1)
+
+        # Create a mask for valid (non-padded) final target positions.
+        # A final target point (e.g., x,y coordinates) is considered valid if all its features are not -1.
+        # valid_mask_final_targets will be a boolean tensor of shape (batch_size).
+        # It's True for samples where the final target is not padded, False otherwise.
+        valid_mask_final_targets = (final_targets != -1).all(dim=-1)
         
-        if mask is not None:
-            final_mask = mask[:, -1]  # Use mask for the last timestep
-            fde = torch.norm(final_predictions - final_targets, p=2, dim=-1) * final_mask
-            valid_count = final_mask.sum()
-        else:
-            fde = torch.norm(final_predictions - final_targets, p=2, dim=-1)
-            valid_count = predictions.size(0)  # Batch size
-        
-        mask = (targets != -1).float()
-        # Apply mask to ignore padded values
-        fde = fde * mask[:, -1]
-        
+        # Apply the mask to the distances.
+        # For padded entries (where mask is False), their contribution to FDE will be 0.
+        # fde_per_sample will have shape (batch_size)
+        fde_per_sample = euclidean_distance_final_points * valid_mask_final_targets.float()
+
         # Apply reduction
         if self.reduction == 'mean':
-            return fde.sum() / valid_count
+            # Sum of FDE for valid samples divided by the number of valid samples.
+            num_valid_samples = valid_mask_final_targets.sum()
+            # If num_valid_samples is 0, fde_per_sample.sum() will also be 0.
+            # clamp(min=1.0) prevents division by zero, resulting in 0.0 / 1.0 = 0.0.
+            return fde_per_sample.sum() / num_valid_samples.clamp(min=1.0)
         elif self.reduction == 'sum':
-            return fde.sum()
+            return fde_per_sample.sum()
         else:  # 'none'
-            return fde
+            return fde_per_sample
 
 
 class RMSELoss(nn.Module):
