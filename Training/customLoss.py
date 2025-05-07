@@ -34,6 +34,7 @@ class ADELoss(nn.Module):
         """
         # Check if predictions and targets have the same shape
         if predictions.shape != targets.shape:
+            print(f"Predictions shape: {predictions.shape}, Targets shape: {targets.shape}")
             raise ValueError("Predictions and targets must have the same shape.")
 
         # Calculate Euclidean distance (L2 norm) across the last dimension (x,y coordinates)
@@ -83,6 +84,11 @@ class FDELoss(nn.Module):
         self.reduction = reduction
         
     def forward(self, predictions, targets):
+        
+        if predictions.shape != targets.shape:
+            print(f"Predictions shape: {predictions.shape}, Targets shape: {targets.shape}")
+            raise ValueError("Predictions and targets must have the same shape.")
+        
         # predictions: (batch_size, sequence_length, num_features) e.g., (B, T, 2)
         # targets: (batch_size, sequence_length, num_features) e.g., (B, T, 2)
 
@@ -132,7 +138,7 @@ class PaddedMSELoss(nn.Module):
     def __init__(self, reduction='mean'):
         super(PaddedMSELoss, self).__init__()
         self.reduction = reduction
-        self.mse = nn.MSELoss(reduction='none')
+        self.mse = nn.MSELoss(reduction=self.reduction)
     def forward(self, predictions, targets):
         """
         Calculate the Mean Squared Error (MSE) loss, ignoring padded values.
@@ -140,6 +146,7 @@ class PaddedMSELoss(nn.Module):
         
         # Check if predictions and targets have the same shape
         if predictions.shape != targets.shape:
+            print(f"Predictions shape: {predictions.shape}, Targets shape: {targets.shape}")
             raise ValueError("Predictions and targets must have the same shape.")
         
         # Create a mask for non-padded values
@@ -149,3 +156,10 @@ class PaddedMSELoss(nn.Module):
         mse = self.mse(predictions, targets) * mask
         mse = mse.sum(dim=-1)  # Sum over the last dimension (x,y coordinates)
         mse = mse.sum(dim=1)
+
+        if self.reduction == 'mean':
+            return mse.mean()
+        elif self.reduction == 'sum':
+            return mse.sum()
+        else:  # 'none'
+            return mse
