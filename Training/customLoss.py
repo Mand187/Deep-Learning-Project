@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from ..config import PADDING_TOKEN
+
 # Lane-aware loss function
 def lane_loss(predicted, lane_positions, mask=None):
     distance_to_lane = 0
@@ -34,7 +36,7 @@ class PaddedMSELoss(nn.Module):
             raise ValueError("Predictions and targets must have the same shape.")
         
         # Create a mask for non-padded values
-        mask = (targets != -1).float()
+        mask = (targets != PADDING_TOKEN).float()
         
         # Calculate MSE for non-padded values
         mse = self.mse(predictions, targets) * mask
@@ -63,7 +65,7 @@ class ADELoss(nn.Module):
         # A target point (e.g., x,y coordinates) is considered valid if all its features are not -1.
         # valid_mask will be a boolean tensor of shape (batch_size, sequence_length).
         # It's True for non-padded time steps, False for padded ones.
-        valid_mask = (targets != -1).all(dim=-1)
+        valid_mask = (targets != PADDING_TOKEN).all(dim=-1)
         
         # Apply the mask to the distances.
         # For padded entries (where mask is False), their contribution to ADE will be 0.
@@ -118,7 +120,7 @@ class FDELoss(nn.Module):
         # A final target point (e.g., x,y coordinates) is considered valid if all its features are not -1.
         # valid_mask_final_targets will be a boolean tensor of shape (batch_size).
         # It's True for samples where the final target is not padded, False otherwise.
-        valid_mask_final_targets = (final_targets != -1).all(dim=-1)
+        valid_mask_final_targets = (final_targets != PADDING_TOKEN).all(dim=-1)
         
         # Apply the mask to the distances.
         # For padded entries (where mask is False), their contribution to FDE will be 0.
@@ -189,7 +191,7 @@ class PaddedMSELoss(nn.Module):
             raise ValueError("Predictions and targets must have the same shape.")
         
         # Create a mask for non-padded values
-        mask = (targets != -1).float()
+        mask = (targets != PADDING_TOKEN).float()
         
         # Calculate MSE for non-padded values
         mse = self.mse(predictions, targets) * mask
