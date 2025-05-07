@@ -39,7 +39,7 @@ class Trainer:
         self.patience = patience
         self.delta = delta
 
-    def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None):
+    def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None, model_path=None):
 
         if criterion is None:
             criterion = nn.MSELoss(reduction='none')
@@ -99,8 +99,8 @@ class Trainer:
 
                 train_iterator.set_postfix({"batch loss": f"{loss.item():.4f}"})
 
-            train_loss = running_loss / len(self.trainLoader)
-            train_acc = running_acc / len(self.trainLoader)
+            train_loss = running_loss / len(self.trainLoader.data_iterable)
+            train_acc = running_acc / len(self.trainLoader.data_iterable)
             train_losses.append(train_loss)
             train_accs.append(train_acc)
 
@@ -127,8 +127,8 @@ class Trainer:
 
                     val_iterator.set_postfix({"batch loss": f"{loss.item():.4f}"})
 
-            val_loss /= len(self.testLoader)
-            val_acc = val_acc_total / len(self.testLoader)
+            val_loss /= len(self.testLoader.data_iterable)
+            val_acc = val_acc_total / len(self.testLoader.data_iterable)
             val_losses.append(val_loss)
             val_accs.append(val_acc)
 
@@ -163,11 +163,13 @@ class Trainer:
         else:
             print(f"Total epochs run: {epoch}")
         print(f"Average time per epoch: {(total_time / epoch):.2f} seconds")
-        print(f"Inference time per batch: {(total_time / epoch / len(self.trainLoader)):.2f} seconds")
+        print(f"Inference time per batch: {(total_time / epoch / len(self.trainLoader.data_iterable)):.2f} seconds")
         print(f"Final Training Loss: {train_losses[-1]:.4f}")
         print(f"Final Validation Loss: {val_losses[-1]:.4f}")
         print(f"Final Training Accuracy: {train_accs[-1]:.2f}%")
         print(f"Final Validation Accuracy: {val_accs[-1]:.2f}%")
+        
+        torch.save(self.model, model_path)
 
         return train_losses, val_losses, train_accs, val_accs, epoch_times
 

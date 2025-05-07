@@ -18,7 +18,7 @@ PREDICTION_LENGTH = 30  # Number of future frames to predict
 # DataLoader parameters
 NUM_WORKERS = 0
 NUM_BATCHES_TO_PREFETCH = 2
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 
 # Training parameters
 EPOCHS = 50
@@ -26,7 +26,7 @@ MINIMUM_TEST_ACCURACY = 0
 SAVE_CHECKPOINTS = False
 
 # Model parameters
-HIDDEN_SIZE = 128
+HIDDEN_SIZE = 256
 NUM_HEADS = 8
 DROPOUT_RATE = 0.1
 LEARNING_RATE = 0.0001

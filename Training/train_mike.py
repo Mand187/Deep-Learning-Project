@@ -28,7 +28,15 @@ class Trainer:
     """
     Trainer class for vehicle position prediction model
     """
-    def __init__(self, model, train_prefetcher, test_prefetcher, train_loader, test_loader, device):
+    def __init__(self,
+                 model,
+                 train_prefetcher,
+                 test_prefetcher,
+                 train_loader,
+                 test_loader,
+                 device,
+                 loss_fn=None,
+                 ):
         """
         Initialize the trainer
         
@@ -48,7 +56,7 @@ class Trainer:
         self.device = device
         
         # Training parameters
-        self.loss_function = nn.CrossEntropyLoss()
+        self.loss_function = loss_fn
         self.optimizer = optim.Adam(
             params=model.parameters(),
             lr=0.001,
