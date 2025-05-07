@@ -54,17 +54,12 @@ class FrameTransformer(nn.Module):
         
         # Temporal convolution to map sequence length to prediction length
         # Stack of 1D convolutional layers over the temporal dimension
-        # self.temporal_conv = nn.Sequential(
-        #     nn.Conv1d(in_channels=sequence_length, out_channels=sequence_length, kernel_size=3, padding=1),
-        #     nn.ReLU(),
-        #     nn.Conv1d(in_channels=sequence_length, out_channels=sequence_length // 2, kernel_size=3, padding=1),
-        #     nn.ReLU(),
-        #     nn.Conv1d(in_channels=sequence_length // 2, out_channels=prediction_length, kernel_size=1)
-        # )
-        self.temporal_conv = nn.Conv1d(
-            in_channels=sequence_length,
-            out_channels=prediction_length,
-            kernel_size=1
+        self.temporal_conv = nn.Sequential(
+            nn.Conv1d(in_channels=sequence_length, out_channels=sequence_length, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv1d(in_channels=sequence_length, out_channels=sequence_length // 2, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv1d(in_channels=sequence_length // 2, out_channels=prediction_length, kernel_size=1)
         )
 
         # Output feature projection
