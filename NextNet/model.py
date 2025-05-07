@@ -241,7 +241,7 @@ class FrameTransformer(nn.Module):
         
         # Multihead attention across IDs in a frame
         self.id_attention = nn.MultiheadAttention(
-            embed_dim=HIDDEN_SIZE,
+            embed_dim=HIDDEN_SIZE*sequence_length,
             num_heads=NUM_HEADS,
             dropout=DROPOUT_RATE,
             batch_first=True
