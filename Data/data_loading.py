@@ -78,13 +78,16 @@ def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
     transformer_max_ids_per_frame = int(frame_id_counts.max())
     
     # Initialize MinMaxScaler for each coordinate column
-    feature_scaler = MinMaxScaler(feature_range=(0, 5))
+    misc_feature_scaler = MinMaxScaler(feature_range=(0, 5))
+    xy_scaler = MinMaxScaler(feature_range=(0, 5))
     
     # Columns to normalize
-    fields_to_normalize = ['X', 'Y', 'Height', 'Width']
+    misc_fields_to_normalize = ['X', 'Y', 'Height', 'Width']
+    xy_fields_to_normalize = ['X', 'Y']
     
     # Normalize each coordinate column between 0 and 1
-    df[fields_to_normalize] = feature_scaler.fit_transform(df[fields_to_normalize])
+    df[misc_fields_to_normalize] = misc_feature_scaler.fit_transform(df[misc_fields_to_normalize])
+    df[xy_fields_to_normalize] = xy_scaler.fit_transform(df[xy_fields_to_normalize])
     
     # Normalize Frame field separately since we need to preserve original mapping
     frame_scaler = MinMaxScaler(feature_range=(0, 5))
@@ -100,7 +103,7 @@ def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
     print(f"Width range: {df['Width'].min():.4f} to {df['Width'].max():.4f}")
     print(f"Frame range: {df['Frame'].min():.4f} to {df['Frame'].max():.4f}")
     
-    return df, transformer_max_ids_per_frame, frame_scaler, feature_scaler
+    return df, transformer_max_ids_per_frame, frame_scaler, misc_feature_scaler
 
 
 def create_tensor_from_dataframe(df, transformer_max_ids_per_frame): # Keep arg for compatibility if needed elsewhere
