@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
+import sys
+import os
 
+# * MODULE IMPORTS
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 from config import PADDING_TOKEN
 
 # Lane-aware loss function
@@ -130,12 +134,15 @@ class RMSELoss(nn.Module):
         
 class PaddedMSELoss(nn.Module):
     def __init__(self, reduction='mean'):
-        super(PaddedMSELoss, self).__init__()
+        super().__init__()
         self.reduction = reduction
-        self.mse = nn.MSELoss(reduction='none')
+        self.mse = nn.MSELoss(reduction=self.reduction)
+        
     def forward(self, predictions, targets):
         """
         Calculate the Mean Squared Error (MSE) loss, ignoring padded values.
+        
+        predictions.shape: [batch_size, prediction_length, num_ids, 2]
         """
         
         # Check if predictions and targets have the same shape
@@ -147,5 +154,5 @@ class PaddedMSELoss(nn.Module):
         
         # Calculate MSE for non-padded values
         mse = self.mse(predictions, targets) * mask
-        mse = mse.sum(dim=-1)  # Sum over the last dimension (x,y coordinates)
-        mse = mse.sum(dim=1)
+        mse = mse.sum(dim=-1) # Sum x_coord_loss + y_coord_loss
+        mse = mse.sum(dim=1) # sum

@@ -2,27 +2,35 @@
 # ===============================================================================================================
 #                                          Data and Library Loading
 # ===============================================================================================================
+# * PYTORCH IMPORTS
 import torch
 import torch.nn as nn
 import torch.utils.data as data
 # from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 from torchtnt.utils.data import CudaDataPrefetcher
 from torchprofile import profile_macs
-from ..Training.customLoss import ADELoss, FDELoss, RMSELoss, PaddedMSELoss
 
+# * PREPROCESSING IMPORTS
 from sklearn.preprocessing import MinMaxScaler # , LabelEncoder, StandardScaler
 import pandas as pd
-
 from sklearn.model_selection import train_test_split
-# import numpy as np
+
+# * UTILITY IMPORTS
 import math
 
 import matplotlib.pyplot as plt
 
 import time
 import signal
+
+import sys
 import os
 
+# * MODULE IMPORTS
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
+from Training.customLoss import ADELoss, FDELoss, RMSELoss, PaddedMSELoss
+
+# ====================================== START =======================================
 assert torch.cuda.is_available(), "ERR: No GPU available"
 
 DEVICE:torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -319,7 +327,7 @@ class FrameTransformer(nn.Module):
         
         # Reshape back and project to input feature size
         output = output.reshape(batch_size, self.prediction_length, num_ids, -1) # [batch_size, prediction_length, num_ids, HIDDEN_SIZE]
-        output = self.output_proj(output)  # [batch_size, prediction_length, num_ids, 2]
+        output = self.output_proj(output) # [batch_size, prediction_length, num_ids, 2]
         
         return output
 
