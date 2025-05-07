@@ -77,33 +77,8 @@ def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
     
     transformer_max_ids_per_frame = int(frame_id_counts.max())
     
-    # Initialize MinMaxScaler for each coordinate column
-    misc_feature_scaler = MinMaxScaler(feature_range=(0, 5))
-    xy_scaler = MinMaxScaler(feature_range=(0, 5))
     
-    # Columns to normalize
-    misc_fields_to_normalize = ['Height', 'Width']
-    xy_fields_to_normalize = ['X', 'Y']
-    
-    # Normalize each coordinate column between 0 and 1
-    df[misc_fields_to_normalize] = misc_feature_scaler.fit_transform(df[misc_fields_to_normalize])
-    df[xy_fields_to_normalize] = xy_scaler.fit_transform(df[xy_fields_to_normalize])
-    
-    # Normalize Frame field separately since we need to preserve original mapping
-    frame_scaler = MinMaxScaler(feature_range=(0, 5))
-    original_frames = df['Frame'].values.reshape(-1, 1)
-    normalized_frames = frame_scaler.fit_transform(original_frames)
-    df['Frame'] = normalized_frames
-    
-    # Verify normalization
-    print("\nAfter normalization:")
-    print(f"X range: {df['X'].min():.4f} to {df['X'].max():.4f}")
-    print(f"Y range: {df['Y'].min():.4f} to {df['Y'].max():.4f}")
-    print(f"Height range: {df['Height'].min():.4f} to {df['Height'].max():.4f}")
-    print(f"Width range: {df['Width'].min():.4f} to {df['Width'].max():.4f}")
-    print(f"Frame range: {df['Frame'].min():.4f} to {df['Frame'].max():.4f}")
-    
-    return df, transformer_max_ids_per_frame, frame_scaler, xy_scaler
+    return df, transformer_max_ids_per_frame
 
 
 def create_tensor_from_dataframe(df, transformer_max_ids_per_frame): # Keep arg for compatibility if needed elsewhere
@@ -134,13 +109,13 @@ def create_tensor_from_dataframe(df, transformer_max_ids_per_frame): # Keep arg 
         frames = sorted(csv_data['Frame'].unique())
         for frame in frames:
             frame_data = frames_grouped.get_group(frame)
-
+            features = ['X', 'Y', 'Width', 'Height']
             # Get IDs and features for current frame
             frame_ids = frame_data['ID_Norm'].values
-            frame_features = frame_data[['Frame', 'X', 'Y', 'Width', 'Height']].values
+            frame_features = frame_data[features].values
 
             # Create padded tensor for current frame using the calculated dimension size
-            frame_tensor = torch.full((tensor_id_dimension_size, NUM_INPUT_FEATURES), PADDING_TOKEN, dtype=torch.float32)
+            frame_tensor = torch.full((tensor_id_dimension_size, len(features)), PADDING_TOKEN, dtype=torch.float32)
             frame_tensor[frame_ids] = torch.from_numpy(frame_features).float()
 
             frame_tensors.append(frame_tensor)
@@ -153,10 +128,10 @@ def create_tensor_from_dataframe(df, transformer_max_ids_per_frame): # Keep arg 
     all_data_tensor = torch.stack(csv_tensors)  # [CSV, Sequence, ID, Features]
 
     print(f"All data tensor shape: {all_data_tensor.shape}")
-    return all_data_tensor
+    return all_data_tensor, len(features)
 
 
-def create_sequences(all_data_tensor):
+def create_sequences(all_data_tensor, sequence_offset = 1):
     """Create input-output sequences from tensor data"""
     X = []
     Y = []
@@ -164,12 +139,12 @@ def create_sequences(all_data_tensor):
     for csv_idx in range(all_data_tensor.shape[0]):
         csv_data = all_data_tensor[csv_idx]  # [Sequence, ID, Features]
         
-        for i in range(len(csv_data) - SEQUENCE_LENGTH - PREDICTION_LENGTH + 1):
+        for i in range(0, len(csv_data) - SEQUENCE_LENGTH - PREDICTION_LENGTH + 1, sequence_offset):
             # Input sequence (SEQUENCE_LENGTH frames)
             x_seq = csv_data[i:i+SEQUENCE_LENGTH]
             # Target sequence (next PREDICTION_LENGTH frames) - Only include X and Y features (indices 1 and 2)
-            y_seq = csv_data[i+SEQUENCE_LENGTH:i+SEQUENCE_LENGTH+PREDICTION_LENGTH, :, 1:3]  # Slice to get X and Y only
-            print(x_seq.shape)
+            y_seq = csv_data[i+SEQUENCE_LENGTH:i+SEQUENCE_LENGTH+PREDICTION_LENGTH, :, :2]  # Slice to get X and Y only
+            # print(x_seq.shape)
             X.append(x_seq)
             Y.append(y_seq)
     
@@ -181,9 +156,36 @@ def create_sequences(all_data_tensor):
 
 
 class VehiclePositionDataset(data.Dataset):
-    def __init__(self, features, labels, padding_token=PADDING_TOKEN):
-        self.features = features
+    def __init__(self, features, labels, padding_token=PADDING_TOKEN, feauture_range=(0,5), num_features=NUM_INPUT_FEATURES):
+        self.features = features # [Num_sequences, SEQUENCE_LENGTH, ID, Features]
         self.labels = labels
+        self.padding_token = padding_token
+        self.x_scaler = MinMaxScaler(feature_range=(0, 16))
+        self.y_scaler = MinMaxScaler(feature_range=(0, 9))
+        self.other_scaler = MinMaxScaler(feauture_range)
+        
+        features_x = features[..., 0].reshape(-1, 1)
+        features_y = features[..., 1].reshape(-1, 1)
+        features_other = features[..., 2:].reshape(-1, num_features-2)
+        
+        features_x = self.x_scaler.fit_transform(features_x.cpu().numpy())
+        features_y = self.y_scaler.fit_transform(features_y.cpu().numpy())
+        #features_other = self.other_scaler.fit_transform(features_other.cpu().numpy())
+        
+        print(f"\n After Normalization:")
+        print(f"X range: {features_x.min():.4f} to {features_x.max():.4f}")
+        print(f"Y range: {features_y.min():.4f} to {features_y.max():.4f}")
+        print(f"Height range: {features_other[:, 0].min():.4f} to {features_other[:, 0].max():.4f}")
+        print(f"Width range: {features_other[:, 1].min():.4f} to {features_other[:, 1].max():.4f}")
+        
+        print(f"Target X range: {labels[..., 0].min():.4f} to {labels[..., 0].max():.4f}")
+        print(f"Target Y range: {labels[..., 1].min():.4f} to {labels[..., 1].max():.4f}")
+        
+        
+        
+        features = np.concatenate((features_x, features_y, features_other), axis=-1)
+        features = torch.tensor(features, dtype=torch.float32)
+        
         
     def __len__(self):
         return len(self.labels)
@@ -192,13 +194,13 @@ class VehiclePositionDataset(data.Dataset):
         return self.features[idx], self.labels[idx]
 
 
-def create_dataloaders(X, Y):
+def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES):
     """Create train and test dataloaders"""
     # Split data into train and test sets
     X_Train, X_Test, Y_Train, Y_Test = train_test_split(X, Y, test_size=0.2, random_state=42)
     
-    train_dataset = VehiclePositionDataset(X_Train, Y_Train)
-    test_dataset = VehiclePositionDataset(X_Test, Y_Test)
+    train_dataset = VehiclePositionDataset(X_Train, Y_Train, num_features=num_features)
+    test_dataset = VehiclePositionDataset(X_Test, Y_Test, num_features=num_features)
     
     train_loader = data.DataLoader(
         train_dataset, 
