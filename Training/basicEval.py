@@ -6,11 +6,13 @@ from torchsummary import summary
 import torch
 
 
-def plotLoss(trainLosses, valLosses):
+def plotLoss(trainLosses, valLosses, title):
     plt.figure(figsize=(10, 5))
     plt.plot(trainLosses, label='Training Loss')
     plt.plot(valLosses, label='Validation Loss')
-    plt.title('Training and Validation Loss Over Epochs')
+    # plt.ylim(0, 5)
+    # plt.xlim(0, len(trainLosses))
+    plt.title(title)
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.legend()
@@ -135,14 +137,43 @@ def test_model(model, test_loader, loss_fn, device=None):
     mask = (actual != -1).astype(float)  # Assuming -1 is the padding value
     
     difference = (predicted - actual) * mask
-    displacement_errors = np.linalg.norm(difference, axis=-1)  # [batch, pred_len, num_ids]
-    ade = np.mean(displacement_errors)
-    rmse = np.sqrt(np.mean(difference ** 2))
+# ADE
+    # displacement_errors_per_point has shape (N, S)
+    # It's 0 for time-steps that were fully padded in 'actual'.
+    displacement_errors_per_point = np.linalg.norm(difference, axis=-1)
+    
+    # Create a mask for valid time-steps (points)
+    # Assumes a point is padded if its first coordinate is -1
+    # valid_points_mask has shape (N, S)
+    valid_points_mask = (actual[..., 0] != -1) 
+    num_valid_points = np.sum(valid_points_mask)
+    
+    sum_displacement_errors = np.sum(displacement_errors_per_point)
+    
+    ade = sum_displacement_errors / num_valid_points if num_valid_points > 0 else 0.0
+
+    # RMSE
+    # difference ** 2 will have 0s for padded coordinates
+    sum_squared_errors = np.sum(difference ** 2)
+    
+    # num_valid_coordinates is the total count of non-padded individual coordinate values
+    num_valid_coordinates = np.sum(mask) 
+    
+    mse_val = sum_squared_errors / num_valid_coordinates if num_valid_coordinates > 0 else 0.0
+    rmse = np.sqrt(mse_val)
 
     print(f'Average Displacement Error (ADE): {ade:.4f}')
     print(f'Root Mean Squared Error (RMSE): {rmse:.4f}')
+    
+    predicted_sample = predicted[0, :, 0]
+    actual_sample = actual[0, :, 0]
+    
 
+    comparison = np.stack((predicted_sample, actual_sample, predicted_sample-actual_sample), axis=1)
+    
+    print(f"Target shape: {actual.shape}")
+    print(f"Predicted shape: {predicted.shape}")
     # Display some predictions
     print("\nPredicted vs Actual (First 5 examples):")
-    print("Predicted:", predicted[:5])
-    print("Actual:   ", actual[:5])
+    print(comparison)
+    

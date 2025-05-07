@@ -13,7 +13,7 @@ else:
 PADDING_TOKEN = -1
 NUM_INPUT_FEATURES = 5  # Frame, X, Y, Width, Height
 SEQUENCE_LENGTH = 100  # Number of frames in input sequence
-PREDICTION_LENGTH = 30  # Number of future frames to predict
+PREDICTION_LENGTH = 150  # Number of future frames to predict
 
 # DataLoader parameters
 NUM_WORKERS = 0
