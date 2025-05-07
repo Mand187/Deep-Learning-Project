@@ -2,38 +2,16 @@ import config as cfg
 import os
 import multiprocessing as mp
 import torch
-from torch import nn
-from torch.utils.data import DataLoader
 from torchtnt.utils.data import CudaDataPrefetcher
-import concurrent.futures
 from Training.jutils import ColorPrinter, Colors
 from Data.data_loading_jaskin import load_and_preprocess_data, create_tensor_from_dataframe, create_sequences, create_dataloaders 
 from Training.train_matt import Trainer
-from Training.basicEval import plotLoss, plotAccuracy, reportFinalMetrics, reportMultiFinalMetrics, plotMultiAccuracy, plotMultiLoss, test_model
-from NextNet.model_split import FrameTransformer, print_model_info
+from NextNet.model_split import FrameTransformer
 
 from Training.customLoss import ADELoss, FDELoss, RMSELoss, PaddedMSELoss
 printer = ColorPrinter()
 
-# %%
-root_dir = os.getcwd()  # Use current working directory as root
-data_dir = os.path.join(root_dir, 'Data')
-csv_dir = os.path.join(data_dir, 'csv')
-csv_file = os.path.join(csv_dir, 'trimmed_IMG_4097_detections.csv')
-num_gpus_to_use = 4  # Number of GPUs to use
-
-print("Data directory: ", data_dir)
-print("CSV directory: ", csv_dir)
-print("CSV file: ", csv_file)
-
-
-model_dir = os.path.join(root_dir, 'Model')
-save_model_dir = os.path.join(model_dir, 'Saved_Model')
-print("Model directory: ", model_dir)
-print("Saved model directory: ", save_model_dir)
-model_name = 'ade_model_1s.pth'
-
-
+# %
 def train_model(
     model_name,
     prediction_length,
@@ -44,6 +22,22 @@ def train_model(
     gpu_id,
     optimizer_kwargs={}
 ):
+    root_dir = os.getcwd()  # Use current working directory as root
+    data_dir = os.path.join(root_dir, 'Data')
+    csv_dir = os.path.join(data_dir, 'csv')
+    csv_file = os.path.join(csv_dir, 'trimmed_IMG_4097_detections.csv')
+    num_gpus_to_use = 4  # Number of GPUs to use
+
+    print("Data directory: ", data_dir)
+    print("CSV directory: ", csv_dir)
+    print("CSV file: ", csv_file)
+
+
+    model_dir = os.path.join(root_dir, 'Model')
+    save_model_dir = os.path.join(model_dir, 'Saved_Model')
+    # print("Model directory: ", model_dir)
+    # print("Saved model directory: ", save_model_dir)
+    model_name = 'ade_model_1s.pth'
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
     device = 'cuda:0'
     
@@ -118,9 +112,15 @@ tasks = [
         'num_epochs' : 2,
     }
 ]
-# --- Multiprocessing Setup ---
-pool = None
+
 if __name__ == '__main__':
+    num_gpus_to_use = 4  # Number of GPUs to use
+    num_gpus_available = torch.cuda.device_count()
+    num_gpus_to_use = min(num_gpus_to_use, num_gpus_available)
+    print(f"Number of GPUs to use: {num_gpus_to_use}")
+
+    # --- Multiprocessing Setup ---
+    pool = None
     # IMPORTANT: Use 'spawn' start method for CUDA compatibility with multiprocessing
     try:
         # Check if start method is already set to spawn, avoid error if run multiple times in interactive session
@@ -138,7 +138,8 @@ if __name__ == '__main__':
         # Create a pool of worker processes, one for each GPU we intend to use
         print(f"Creating process pool with size {num_gpus_to_use}")
         # Assign to the global pool variable so the handler can access it
-        globals()['pool'] = mp.Pool(processes=num_gpus_to_use)
+        globals()['pool'] = mp.Pool(processes=min(num_gpus_to_use, len(tasks)))
+        print(f"Process pool created with {min(num_gpus_to_use, len(tasks))} processes.")
         
         for i, kwargs in enumerate(tasks):
             printer.print(f"Starting task {i+1}/{len(tasks)} on GPU {kwargs['gpu_id']}", Colors.GREEN)
