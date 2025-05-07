@@ -2,12 +2,14 @@ import torch
 
 # Device configuration
 
-if torch.cuda.is_available():
-    print("Using GPU")
-    DEVICE = torch.device("cuda")
-else:
-    print("Using CPU")
-    DEVICE = torch.device("cpu")
+# if torch.cuda.is_available():
+#     print("Using GPU")
+#     DEVICE = torch.device("cuda")
+# else:
+#     print("Using CPU")
+#     DEVICE = torch.device("cpu")
+
+DEVICE = torch.device('cuda:2')
 
 # Data parameters
 PADDING_TOKEN = -1

@@ -35,7 +35,7 @@ model_dir = os.path.join(root_dir, 'Model')
 save_model_dir = os.path.join(model_dir, 'Saved_Model')
 print("Model directory: ", model_dir)
 print("Saved model directory: ", save_model_dir)
-model_name = 'mse_model.pth'
+model_name = 'fde_model_5s.pth'
 
 
 # %%
@@ -43,6 +43,9 @@ ADE = ADELoss()
 FDE = FDELoss()
 RMSE = RMSELoss()
 PADDEDMSE = PaddedMSELoss()
+
+
+criterion = FDE
 
 # %%
 df, transformer_max_ids_per_frame, frame_scaler, feature_scaler = load_and_preprocess_data(csv_folder=csv_dir)
@@ -78,14 +81,14 @@ if retrain_model:
         num_heads=cfg.NUM_HEADS,
         dropout_rate=cfg.DROPOUT_RATE
     )
-    trainScript = Trainer(model, train_prefetcher, test_prefetcher, model_path=model_file_path)  # Load the model from the specified path
+    trainScript = Trainer(model, train_prefetcher, test_prefetcher, model_name=model_name[:-4], model_path=model_file_path, device=cfg.DEVICE)  # Load the model from the specified path
 
     trainScript.earlyStop(enable=True, patience=30, delta=0.01)
     train_losses1, val_losses1, train_accs1, val_accs1, epoch_times1 = trainScript.train(
         num_epochs=cfg.EPOCHS, 
         learningRate=cfg.LEARNING_RATE, 
-        criterion=PADDEDMSE, 
-        optimizer=torch.optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE)
+        criterion=criterion, 
+        optimizer=torch.optim.AdamW(model.parameters(), lr=cfg.LEARNING_RATE)
     )
 else:
     model = torch.load(model_file_path)
@@ -100,107 +103,12 @@ else:
         model_path = model_file_path
     )
 
-# %%
-
-
-# %%
-plotLoss(train_losses1, val_losses1, 'MSE Loss 5s')
-#plotAccuracy(train_accs1, val_accs1)
-
-test_model(model, test_loader,PADDEDMSE, feature_scaler)
-
-# %% [markdown]
-# # ADE
-
-# %%
-trainScript = Trainer(model, train_loader, test_loader)
-
-trainScript.earlyStop(enable=True, patience=30, delta=0.01)
-train_losses2, val_losses2, train_accs2, val_accs2, epoch_times2 = trainScript.train(
-    num_epochs=cfg.EPOCHS, 
-    learningRate=cfg.LEARNING_RATE, 
-    criterion=ADE, 
-    optimizer=torch.optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE)
+test_model(
+    model,
+    test_loader,
+    criterion,
+    feature_scaler,
+    device=cfg.DEVICE
 )
 
-# %%
-# Ensure the directory exists before saving the model
-os.makedirs(save_model_dir, exist_ok=True)
-model_file_path = os.path.join(save_model_dir, 'ADE_model.pth')  # Add a file name
-print("Saving model to: ", model_file_path)
-trainScript.save_model(model, model_file_path)
-
-# %%
-plotLoss(train_losses2, val_losses2)
-plotAccuracy(train_accs2, val_accs2)
-reportFinalMetrics(train_losses2, val_losses2, train_accs2, val_accs2, epoch_times2)
-
-# %% [markdown]
-# # FDE
-
-# %%
-trainScript = Trainer(model, train_loader, test_loader)
-
-trainScript.earlyStop(enable=True, patience=30, delta=0.01)
-train_losses3, val_losses3, train_accs3, val_accs3, epoch_times3 = trainScript.train(
-    num_epochs=cfg.EPOCHS, 
-    learningRate=cfg.LEARNING_RATE, 
-    criterion=FDE, 
-    optimizer=torch.optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE)
-)
-
-# %%
-# Ensure the directory exists before saving the model
-os.makedirs(save_model_dir, exist_ok=True)
-model_file_path = os.path.join(save_model_dir, 'FDE_model.pth')  # Add a file name
-print("Saving model to: ", model_file_path)
-trainScript.save_model(model, model_file_path)
-
-# %%
-plotLoss(train_losses3, val_losses3)
-plotAccuracy(train_accs3, val_accs3)
-reportFinalMetrics(train_losses3, val_losses3, train_accs3, val_accs3, epoch_times3)
-
-# %% [markdown]
-# # RSME
-
-# %%
-trainScript = Trainer(model, train_loader, test_loader)
-
-trainScript.earlyStop(enable=True, patience=30, delta=0.01)
-train_losses4, val_losses4, train_accs4, val_accs4, epoch_times4 = trainScript.train(
-    num_epochs=cfg.EPOCHS, 
-    learningRate=cfg.LEARNING_RATE, 
-    criterion=RMSE, 
-    optimizer=torch.optim.Adam(model.parameters(), lr=cfg.LEARNING_RATE)
-)
-
-# %%
-# Ensure the directory exists before saving the model
-os.makedirs(save_model_dir, exist_ok=True)
-model_file_path = os.path.join(save_model_dir, 'RSME_model.pth')  # Add a file name
-print("Saving model to: ", model_file_path)
-trainScript.save_model(model, model_file_path)
-
-# %%
-plotLoss(train_losses4, val_losses4)
-plotAccuracy(train_accs4, val_accs4)
-reportFinalMetrics(train_losses4, val_losses4, train_accs4, val_accs4, epoch_times4)
-
-# %% [markdown]
-# # Combined Plots
-
-# %%
-multi_train_losses = [train_losses1, train_losses2, train_losses3, train_losses4]
-multi_val_losses = [val_losses1, val_losses2, val_losses3, val_losses4]
-multi_train_accs = [train_accs1, train_accs2, train_accs3, train_accs4]
-multi_val_accs = [val_accs1, val_accs2, val_accs3, val_accs4]
-multi_epoch_times = [epoch_times1, epoch_times2, epoch_times3, epoch_times4]
-
-model_names = ['MSE', 'ADE', 'FDE', 'RMSE']
-
-# %%
-plotMultiLoss(model_names, multi_train_losses, multi_val_losses)
-plotMultiAccuracy(model_names, multi_train_accs, multi_val_accs)
-
-
+Trainer
