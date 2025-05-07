@@ -76,26 +76,16 @@ class FrameTransformer(nn.Module):
         
         return.shape: [batch_size, prediction_length, num_ids, 2 (X, Y)]
         """
-        batch_size, seq_len, num_ids_from_input, input_feat_dim = x.shape
-        # Get hidden_size from the layer to ensure consistency
-        hidden_size_from_layer = self.input_proj.out_features
-        if debug:
-            print(f"[FrameTransformer forward] Input x shape: {x.shape}") # Debug print
-            print(f"[FrameTransformer forward] num_ids_from_input={num_ids_from_input}, hidden_size_from_layer={hidden_size_from_layer}") # Debug print
+        batch_size, seq_len, num_ids, input_feat_dim = x.shape
         
         # Project input features to HIDDEN_SIZE
-        x = self.input_proj(x)  # [batch, seq, num_ids, hidden_size]
+        x = self.input_proj(x)  # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
         
         # Add frame positional encoding
-        # Ensure positional encoder matches hidden_size_from_layer if they could differ
-        if x.size(-1) != self.frame_pos_encoder.size(-1):
-             print(f"WARNING: hidden_size mismatch between input_proj ({x.size(-1)}) and pos_encoder ({self.frame_pos_encoder.size(-1)})", flush=True)
-             # Handle mismatch or raise error if necessary - For now, just warn
-        # Add positional encoding - Ensure broadcasting is correct
-        x = x + self.frame_pos_encoder.unsqueeze(2).expand(-1, -1, num_ids_from_input, -1)
+        x = x + self.frame_pos_encoder.unsqueeze(2)
         
         # Reshape for ID attention (treat each frame independently)
-        x_id = x.reshape(batch_size * seq_len, num_ids_from_input, -1) # [batch * seq, num_ids, hidden_size]
+        x_id = x.reshape(batch_size * seq_len, num_ids, -1) # [batch * seq, num_ids, HIDDEN_SIZE]
         
         # Self attention across IDs with residual
         id_attn_out, _ = self.id_attention(x_id, x_id, x_id)
@@ -103,13 +93,8 @@ class FrameTransformer(nn.Module):
         id_attn_out = self.norm1(x_id + id_attn_out)
         
         # Reshape back for frame attention
-        x_frame = id_attn_out.reshape(batch_size, seq_len, num_ids_from_input, -1)
-        # Calculate expected dimension explicitly
-        expected_frame_dim = num_ids_from_input * hidden_size_from_layer
-        x_frame = x_frame.reshape(batch_size, seq_len, expected_frame_dim) # Use explicit calculation
-        if debug:
-            print(f"[FrameTransformer forward] x_frame shape before frame_attention: {x_frame.shape}", flush=True) # Debug print
-            print(f"[FrameTransformer forward] Expected frame_attention embed_dim: {self.frame_attention.embed_dim}", flush=True) # Debug print
+        x_frame = id_attn_out.reshape(batch_size, seq_len, num_ids, -1)
+        x_frame = x_frame.reshape(batch_size, seq_len, -1) # [batch_size, sequence_length, num_ids * HIDDEN_SIZE]
         
         # Self attention across frames with residual
         frame_attn_out, _ = self.frame_attention(x_frame, x_frame, x_frame)
@@ -117,23 +102,17 @@ class FrameTransformer(nn.Module):
         frame_attn_out = self.norm2(x_frame + frame_attn_out)
         
         # Reshape for temporal convolution
-        # Use hidden_size_from_layer for consistency
-        output = frame_attn_out.reshape(batch_size, seq_len, num_ids_from_input, hidden_size_from_layer)
-        output = output.permute(0, 2, 1, 3) # [batch, num_ids, seq_len, hidden_size]
-        output = output.reshape(batch_size * num_ids_from_input, seq_len, hidden_size_from_layer) # [batch*num_ids, seq_len, hidden_size]
+        output = frame_attn_out.reshape(batch_size, seq_len, num_ids, -1) # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
+        output = output.permute(0, 2, 1, 3) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
+        output = output.reshape(batch_size * num_ids, seq_len, -1) # [batch_size*num_ids, sequence_length, HIDDEN_SIZE]
         
         # Apply temporal convolution
-        # Input shape: [batch*num_ids, 100, 64] (N, C_in=100, L_in=64)
-        # Conv1d(in_channels=100, ...) expects this shape
-        output = self.temporal_conv(output) # Output shape: [batch*num_ids, 30, 64] (N, C_out=30, L_out=64)
+        output = self.temporal_conv(output) # [batch_size*num_ids, prediction_length, HIDDEN_SIZE]
         
-        # Reshape back and project to output feature size
-        # Need shape: [batch, pred_len, num_ids, 2]
-        # Current shape: [batch*num_ids, 30, 64] (N, C_out, L_out)
-        # Reshape to [batch, num_ids, 30, 64]
-        output = output.reshape(batch_size, num_ids_from_input, self.prediction_length, hidden_size_from_layer)
-        output = output.permute(0, 2, 1, 3) # [batch, pred_len, num_ids, hidden_size]
-        output = self.output_proj(output)  # [batch, pred_len, num_ids, 2]
+        # Reshape back and project to input feature size
+        output = output.reshape(batch_size, num_ids, self.prediction_length, -1) # [batch_size, num_ids, prediction_length, HIDDEN_SIZE]
+        output = output.permute(0, 2, 1, 3) # [batch_size, prediction_length, num_ids, HIDDEN_SIZE]
+        output = self.output_proj(output)  # [batch_size, prediction_length, num_ids, 2]
         
         return output
 
