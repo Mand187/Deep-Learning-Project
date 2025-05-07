@@ -10,3 +10,4 @@ videos/
 runs/
 *.dtmp
 *.csv
+*.pth
