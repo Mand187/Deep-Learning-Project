@@ -285,7 +285,8 @@ class FrameTransformer(nn.Module):
         x = x + self.frame_pos_encoder.unsqueeze(2)
         
         # Reshape for ID attention (treat each frame independently)
-        x_id = x.reshape(batch_size * seq_len, num_ids, -1) # [batch * seq, num_ids, HIDDEN_SIZE]
+        x_id = x.permute(0,2,1,3) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
+        x_id = x_id.reshape(batch_size, num_ids, -1) # [batch_size, num_ids, sequence_length * HIDDEN_SIZE]
         
         # Self attention across IDs with residual
         id_attn_out, _ = self.id_attention(x_id, x_id, x_id)
@@ -293,7 +294,8 @@ class FrameTransformer(nn.Module):
         id_attn_out = self.norm1(x_id + id_attn_out)
         
         # Reshape back for frame attention
-        x_frame = id_attn_out.reshape(batch_size, seq_len, num_ids, -1)
+        x_frame = id_attn_out.reshape(batch_size, num_ids, seq_len, -1) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
+        x_frame = x_frame.permute(0,2,1,3) # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
         x_frame = x_frame.reshape(batch_size, seq_len, -1) # [batch_size, sequence_length, num_ids * HIDDEN_SIZE]
         
         # Self attention across frames with residual
