@@ -22,8 +22,9 @@ def compute_accuracy(predictions, targets, threshold=0.1):
 
 
 class Trainer:
-    def __init__(self, model, trainLoader, testLoader, device=None):
+    def __init__(self, model, trainLoader, testLoader, model_path, device=None):
         self.model = model
+        self.model_path = model_path
         self.trainLoader = trainLoader
         self.testLoader = testLoader
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -39,7 +40,7 @@ class Trainer:
         self.patience = patience
         self.delta = delta
 
-    def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None, model_path=None):
+    def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None):
 
         if criterion is None:
             criterion = nn.MSELoss(reduction='none')
@@ -150,6 +151,8 @@ class Trainer:
                 if val_loss < best_val_loss - self.delta:
                     best_val_loss = val_loss
                     patience_counter = 0
+                    self.save_model(self.model, self.model_path)
+                    print(f"Best validation loss so far: {best_val_loss:.4f}")
                 else:
                     patience_counter += 1
                     if patience_counter >= self.patience:
@@ -169,11 +172,12 @@ class Trainer:
         print(f"Final Training Accuracy: {train_accs[-1]:.2f}%")
         print(f"Final Validation Accuracy: {val_accs[-1]:.2f}%")
         
-        torch.save(self.model, model_path)
+        torch.save(self.model, self.model_path)
 
         return train_losses, val_losses, train_accs, val_accs, epoch_times
 
-    def save_model(self, model, path):
+    def save_model(self, *args, **kwargs):
         """Save the model to a file"""
-        torch.save(model, path)
+        print(f"Saving model to {self.model_path}")
+        torch.save(self.model, self.model_path)
 

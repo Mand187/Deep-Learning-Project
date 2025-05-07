@@ -24,8 +24,9 @@ def compute_accuracy(predictions, targets, threshold=2.0):
 
 
 class Trainer:
-    def __init__(self, model, trainLoader, testLoader, device=None):
+    def __init__(self, model, trainLoader, testLoader, model_path, device=None):
         self.model = model
+        self.model_path = model_path
         self.trainLoader = trainLoader
         self.testLoader = testLoader
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -55,6 +56,7 @@ class Trainer:
         train_losses, val_losses = [], []
         train_accs, val_accs = [], []
         epoch_times = []
+        
 
         total_start_time = time.time()
         pbar = tqdm(range(1, num_epochs + 1), desc="Training Progress")
@@ -137,6 +139,7 @@ class Trainer:
                 if val_loss < best_val_loss - self.delta:
                     best_val_loss = val_loss
                     patience_counter = 0
+                    self.save_model(self.model_path)
                 else:
                     patience_counter += 1
                     if patience_counter >= self.patience:
