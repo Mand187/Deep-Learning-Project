@@ -58,7 +58,7 @@ class ADELoss(nn.Module):
         # Apply mask to ignore padded values
         euclidean_distance = euclidean_distance * mask
         # Average over sequence length
-        ade = euclidean_distance.sum(dim=1) / valid_count  # average over sequence length (dim=1)
+        ade = euclidean_distance.sum(dim=1) #/ valid_count  # average over sequence length (dim=1)
         
         
         # Apply reduction

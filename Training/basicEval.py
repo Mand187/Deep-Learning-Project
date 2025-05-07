@@ -132,9 +132,12 @@ def test_model(model, test_loader, loss_fn, device=None):
     test_loss = total_loss / len(test_loader.dataset)
     print(f'Test Loss (MSE): {test_loss:.4f}')
 
-    displacement_errors = np.linalg.norm(predicted - actual, axis=-1)  # [batch, pred_len, num_ids]
+    mask = (actual != -1).astype(float)  # Assuming -1 is the padding value
+    
+    difference = (predicted - actual) * mask
+    displacement_errors = np.linalg.norm(difference, axis=-1)  # [batch, pred_len, num_ids]
     ade = np.mean(displacement_errors)
-    rmse = np.sqrt(np.mean((predicted - actual) ** 2))
+    rmse = np.sqrt(np.mean(difference ** 2))
 
     print(f'Average Displacement Error (ADE): {ade:.4f}')
     print(f'Root Mean Squared Error (RMSE): {rmse:.4f}')
