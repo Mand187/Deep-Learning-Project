@@ -266,7 +266,7 @@ class FrameTransformer(nn.Module):
         self.output_proj = nn.Linear(HIDDEN_SIZE, 2)
         
         # Layer norms and dropout
-        self.norm1 = nn.LayerNorm(HIDDEN_SIZE)
+        self.norm1 = nn.LayerNorm(HIDDEN_SIZE*sequence_length)
         self.norm2 = nn.LayerNorm(HIDDEN_SIZE * num_ids)
         self.dropout = nn.Dropout(DROPOUT_RATE)
         
