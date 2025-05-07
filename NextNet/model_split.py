@@ -66,8 +66,8 @@ class FrameTransformer(nn.Module):
         self.output_proj = nn.Linear(hidden_size, 2)
         
         # Layer norms and dropout
-        self.norm1 = nn.LayerNorm(hidden_size)
-        self.norm2 = nn.LayerNorm(frame_attention_embed_dim) # Use calculated dim
+        self.norm1 = nn.LayerNorm(hidden_size * sequence_length)
+        self.norm2 = nn.LayerNorm(hidden_size * num_ids) # Use calculated dim
         self.dropout = nn.Dropout(dropout_rate)
         
     def forward(self, x):
