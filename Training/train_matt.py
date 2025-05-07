@@ -2,6 +2,7 @@ import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import os
 
 try:
     from tqdm.notebook import tqdm
@@ -22,9 +23,10 @@ def compute_accuracy(predictions, targets, threshold=0.1):
 
 
 class Trainer:
-    def __init__(self, model, trainLoader, testLoader, model_path, model_name, device=None):
+    def __init__(self, model, trainLoader, testLoader, model_path, model_name, plot_path='.', device=None):
         self.model = model
         self.model_path = model_path
+        self.plot_path = plot_path
         self.model_name = model_name
         self.trainLoader = trainLoader
         self.testLoader = testLoader
@@ -183,6 +185,9 @@ class Trainer:
         print(f"Saving model to {self.model_path}")
         torch.save(self.model, self.model_path)
     def plot_losses(self):
+        plot_filepath = os.path.join(self.plot_path, f"{self.model_name}_losses.png")
+        print(f"Plotting losses to {plot_filepath}")
+        print(f"Saving losses to {self.model_name}_losses.png")
         import matplotlib.pyplot as plt
         plt.figure(figsize=(10, 5))
         plt.plot(self.train_losses, label='Training Loss')
@@ -193,6 +198,9 @@ class Trainer:
         plt.legend()
         plt.grid(True)
         #plt.show()
-        plt.savefig(f"{self.model_name}_losses.png")
+        plt.tight_layout()
+        plt.savefig(plot_filepath)
+        plt.close()
+        print(f"Plot saved to {plot_filepath}")
         #plt.close()
 
