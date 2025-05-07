@@ -82,7 +82,7 @@ def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
     xy_scaler = MinMaxScaler(feature_range=(0, 5))
     
     # Columns to normalize
-    misc_fields_to_normalize = ['X', 'Y', 'Height', 'Width']
+    misc_fields_to_normalize = ['Height', 'Width']
     xy_fields_to_normalize = ['X', 'Y']
     
     # Normalize each coordinate column between 0 and 1
