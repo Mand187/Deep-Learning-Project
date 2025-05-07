@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
+from sklearn.preprocessing import MinMaxScaler
 from torchsummary import summary
 import torch
 
@@ -100,8 +101,19 @@ def computationalComplexity(model, input_size):
     # Assuming the model is a PyTorch model
     model = summary(model, input_size=input_size)
     print(model)
+    
+def denorm_y(y, xy_scaler):
+    print("Denormalizing Y")
+    y_flat = np.reshape(y, (y.shape[0] * y.shape[1] * y.shape[2], 2))
+    print(f"Y_flat shape: {y_flat.shape}")
+    y_denorm_flat = xy_scaler.inverse_transform(y_flat)
+    print(f"Y_denorm_flat shape: {y_denorm_flat.shape}")
+    y_denorm = np.reshape(y_denorm_flat, (y.shape[0], y.shape[1], *y.shape[2:]))
+    print(f"Y_denorm shape: {y_denorm.shape}")
+    print(f"Y_denorm: {y_denorm[0][0]}")
+    return y_denorm
 
-def test_model(model, test_loader, loss_fn, device=None):
+def test_model(model, test_loader, loss_fn, xy_scaler: MinMaxScaler, device=None):
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -123,16 +135,22 @@ def test_model(model, test_loader, loss_fn, device=None):
             total_loss += loss.item() * inputs.size(0)  # Weight by batch size
 
             # Save predictions and actuals
-            all_preds.append(outputs.cpu())
-            all_targets.append(targets.cpu())
+            all_preds.append(outputs.cpu()) # Shape is (batch_size, seq_len, num_ids, 2)
+            all_targets.append(targets.cpu()) # Shape is (batch_size, seq_len, num_ids, 2)
 
     # Concatenate all batches
-    predicted = torch.cat(all_preds, dim=0).numpy()
+    predicted = torch.cat(all_preds, dim=0).numpy()  
+    print(f"Predicted shape: {predicted.shape}")
+    predicted = denorm_y(predicted, xy_scaler)
     actual = torch.cat(all_targets, dim=0).numpy()
+    actual = denorm_y(actual, xy_scaler)
+    
+    
 
     # Metrics
     test_loss = total_loss / len(test_loader.dataset)
     print(f'Test Loss (MSE): {test_loss:.4f}')
+    rmse = np.sqrt(test_loss)
 
     mask = (actual != -1).astype(float)  # Assuming -1 is the padding value
     
@@ -160,7 +178,7 @@ def test_model(model, test_loader, loss_fn, device=None):
     num_valid_coordinates = np.sum(mask) 
     
     mse_val = sum_squared_errors / num_valid_coordinates if num_valid_coordinates > 0 else 0.0
-    rmse = np.sqrt(mse_val)
+    #rmse = np.sqrt(total_loss)
 
     print(f'Average Displacement Error (ADE): {ade:.4f}')
     print(f'Root Mean Squared Error (RMSE): {rmse:.4f}')

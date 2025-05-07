@@ -79,7 +79,7 @@ def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
     
     # Initialize MinMaxScaler for each coordinate column
     misc_feature_scaler = MinMaxScaler(feature_range=(0, 5))
-    xy_scaler = MinMaxScaler(feature_range=(0, 5))
+    xy_scaler = MinMaxScaler(feature_range=(0, 20))
     
     # Columns to normalize
     misc_fields_to_normalize = ['Height', 'Width']
@@ -103,7 +103,7 @@ def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
     print(f"Width range: {df['Width'].min():.4f} to {df['Width'].max():.4f}")
     print(f"Frame range: {df['Frame'].min():.4f} to {df['Frame'].max():.4f}")
     
-    return df, transformer_max_ids_per_frame, frame_scaler, misc_feature_scaler
+    return df, transformer_max_ids_per_frame, frame_scaler, xy_scaler
 
 
 def create_tensor_from_dataframe(df, transformer_max_ids_per_frame): # Keep arg for compatibility if needed elsewhere
