@@ -43,7 +43,7 @@ class Trainer:
         self.delta = delta
 
     def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None):
-
+        print(f"Training {self.model_name} for {num_epochs} epochs with learning rate {learningRate}")
         if criterion is None:
             criterion = nn.MSELoss(reduction='none')
 

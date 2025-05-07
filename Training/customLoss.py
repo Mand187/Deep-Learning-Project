@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from ..config import PADDING_TOKEN
+from config import PADDING_TOKEN
 
 # Lane-aware loss function
 def lane_loss(predicted, lane_positions, mask=None):
