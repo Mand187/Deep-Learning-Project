@@ -87,24 +87,27 @@ print(f"Maximum IDs (Vehicles) per frame: {frame_id_counts.max()}")
 TRANSFORMER_MAX_IDS_PER_FRAME:int = int(frame_id_counts.max())
 
 # Initialize MinMaxScaler for each coordinate column
-scaler = MinMaxScaler(feature_range=(0, 5))
+misc_feature_scaler = MinMaxScaler(feature_range=(0, 5))
+xy_scaler = MinMaxScaler(feature_range=(0, 5))
 
 # Columns to normalize
-fields_to_normalize = ['X', 'Y', 'Height', 'Width']
+misc_fields_to_normalize = ['Height', 'Width']
+xy_fields_to_normalize = ['X', 'Y']
 
 # Normalize each coordinate column between 0 and 1
-df[fields_to_normalize] = scaler.fit_transform(df[fields_to_normalize])
+# df[misc_fields_to_normalize] = misc_feature_scaler.fit_transform(df[misc_fields_to_normalize])
+# df[xy_fields_to_normalize] = xy_scaler.fit_transform(df[xy_fields_to_normalize])
 
 # Normalize Frame field separately since we need to preserve original mapping
-frame_scaler = MinMaxScaler(feature_range=(0, 5))
-original_frames = df['Frame'].values.reshape(-1, 1)
-normalized_frames = frame_scaler.fit_transform(original_frames)
-df['Frame'] = normalized_frames
+# frame_scaler = MinMaxScaler(feature_range=(0, 5))
+# original_frames = df['Frame'].values.reshape(-1, 1)
+# normalized_frames = frame_scaler.fit_transform(original_frames)
+# df['Frame'] = normalized_frames
 
 # Function to get original frame value from normalized value
-def get_original_frame(normalized_frame):
-    """Convert normalized frame value back to original frame number"""
-    return int(frame_scaler.inverse_transform([[normalized_frame]])[0][0])
+# def get_original_frame(normalized_frame):
+#     """Convert normalized frame value back to original frame number"""
+#     return int(frame_scaler.inverse_transform([[normalized_frame]])[0][0])
 
 # Verify normalization
 print("\nAfter normalization:")
@@ -112,10 +115,13 @@ print(f"X range: {df['X'].min():.4f} to {df['X'].max():.4f}")
 print(f"Y range: {df['Y'].min():.4f} to {df['Y'].max():.4f}")
 print(f"Height range: {df['Height'].min():.4f} to {df['Height'].max():.4f}")
 print(f"Width range: {df['Width'].min():.4f} to {df['Width'].max():.4f}")
-print(f"Frame range: {df['Frame'].min():.4f} to {df['Frame'].max():.4f}")
+# print(f"Frame range: {df['Frame'].min():.4f} to {df['Frame'].max():.4f}")
 
 # ================================ CREATE TENSOR FROM CSV DATA ======================================
 # Desired Output Shape: [CSV, Sequence/Frame, ID (Padded), features (Frame, X, Y, Width, Height)]
+
+# Sort the dataframe by CSV_ID, then Frame, then ID_Norm to ensure consistent ordering
+df = df.sort_values(by=['CSV_ID', 'Frame', 'ID_Norm'])
 
 # Group by frame and create sequences
 frames_grouped = df.groupby('Frame')
@@ -284,8 +290,17 @@ class FrameTransformer(nn.Module):
         # Add frame positional encoding
         x = x + self.frame_pos_encoder.unsqueeze(2)
         
-        # Reshape for ID attention (treat each frame independently)
-        x_id = x.permute(0,2,1,3) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
+        # Reshape back for frame attention
+        x_frame = x.reshape(batch_size, seq_len, -1) # [batch_size, sequence_length, num_ids * HIDDEN_SIZE]
+        
+        # Self attention across frames with residual
+        frame_attn_out, _ = self.frame_attention(x_frame, x_frame, x_frame)
+        frame_attn_out = self.dropout(frame_attn_out)
+        frame_attn_out = self.norm2(x_frame + frame_attn_out)
+        
+        # Reshape for ID attention
+        x_id = frame_attn_out.reshape(batch_size, seq_len, num_ids, -1) # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
+        x_id = x_id.permute(0,2,1,3) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
         x_id = x_id.reshape(batch_size, num_ids, -1) # [batch_size, num_ids, sequence_length * HIDDEN_SIZE]
         
         # Self attention across IDs with residual
@@ -293,27 +308,16 @@ class FrameTransformer(nn.Module):
         id_attn_out = self.dropout(id_attn_out)
         id_attn_out = self.norm1(x_id + id_attn_out)
         
-        # Reshape back for frame attention
-        x_frame = id_attn_out.reshape(batch_size, num_ids, seq_len, -1) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
-        x_frame = x_frame.permute(0,2,1,3) # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
-        x_frame = x_frame.reshape(batch_size, seq_len, -1) # [batch_size, sequence_length, num_ids * HIDDEN_SIZE]
-        
-        # Self attention across frames with residual
-        frame_attn_out, _ = self.frame_attention(x_frame, x_frame, x_frame)
-        frame_attn_out = self.dropout(frame_attn_out)
-        frame_attn_out = self.norm2(x_frame + frame_attn_out)
-        
         # Reshape for temporal convolution
-        output = frame_attn_out.reshape(batch_size, seq_len, num_ids, -1) # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
-        output = output.permute(0, 2, 1, 3) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
-        output = output.reshape(batch_size * num_ids, seq_len, -1) # [batch_size*num_ids, sequence_length, HIDDEN_SIZE]
+        x_conv = id_attn_out.reshape(batch_size, num_ids, seq_len, -1) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
+        x_conv = x_conv.permute(0,2,1,3) # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
+        x_conv = x_conv.reshape(batch_size, seq_len, -1) # [batch_size, sequence_length, num_ids * HIDDEN_SIZE]
         
         # Apply temporal convolution
-        output = self.temporal_conv(output) # [batch_size*num_ids, prediction_length, HIDDEN_SIZE]
+        output = self.temporal_conv(x_conv) # [batch_size, prediction_length, num_ids * HIDDEN_SIZE]
         
         # Reshape back and project to input feature size
-        output = output.reshape(batch_size, num_ids, self.prediction_length, -1) # [batch_size, num_ids, prediction_length, HIDDEN_SIZE]
-        output = output.permute(0, 2, 1, 3) # [batch_size, prediction_length, num_ids, HIDDEN_SIZE]
+        output = output.reshape(batch_size, self.prediction_length, num_ids, -1) # [batch_size, prediction_length, num_ids, HIDDEN_SIZE]
         output = self.output_proj(output)  # [batch_size, prediction_length, num_ids, 2]
         
         return output
@@ -336,6 +340,16 @@ sample_X, sample_Y = sample_X.to(DEVICE), sample_Y.to(DEVICE)
 macs = profile_macs(model, (sample_X, ))
 print(f"Computational complexity: {macs:,} MACs")
 print(f"Model size: {total_params * 4 / (1024 * 1024):.2f} MB (assuming float32)")
+
+# * Training Loop Reinitialization
+epochIterator:int = 0
+bestTestAccuracy:float = 0
+
+avgTrainBatchLossPerEpoch:list = []
+avgTestBatchLossPerEpoch:list = []
+trainAccuracyPerEpoch:list = []
+testAccuracyPerEpoch:list = []
+
 # %%
 # ================================================ Shape Testing ================================================
 firstBatch = next(iter(test_loader))
@@ -385,14 +399,6 @@ Optimizer_Function:torch.optim.Adam = torch.optim.Adam(
 )
 
 EPOCHS:int = 50
-epochIterator:int = 0
-
-avgTrainBatchLossPerEpoch:list = []
-avgTestBatchLossPerEpoch:list = []
-trainAccuracyPerEpoch:list = []
-testAccuracyPerEpoch:list = []
-
-bestTestAccuracy:float = 0
 
 MINIMUM_TEST_ACCURACY:int = 0
 SAVE_CHECKPOINTS:bool = False

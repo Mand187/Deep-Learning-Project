@@ -84,8 +84,17 @@ class FrameTransformer(nn.Module):
         # Add frame positional encoding
         x = x + self.frame_pos_encoder.unsqueeze(2)
         
-        # Reshape for ID attention (treat each frame independently)
-        x_id = x.permute(0,2,1,3) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
+        # Reshape back for frame attention
+        x_frame = x.reshape(batch_size, seq_len, -1) # [batch_size, sequence_length, num_ids * HIDDEN_SIZE]
+        
+        # Self attention across frames with residual
+        frame_attn_out, _ = self.frame_attention(x_frame, x_frame, x_frame)
+        frame_attn_out = self.dropout(frame_attn_out)
+        frame_attn_out = self.norm2(x_frame + frame_attn_out)
+        
+        # Reshape for ID attention
+        x_id = frame_attn_out.reshape(batch_size, seq_len, num_ids, -1) # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
+        x_id = x_id.permute(0,2,1,3) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
         x_id = x_id.reshape(batch_size, num_ids, -1) # [batch_size, num_ids, sequence_length * HIDDEN_SIZE]
         
         # Self attention across IDs with residual
@@ -93,27 +102,16 @@ class FrameTransformer(nn.Module):
         id_attn_out = self.dropout(id_attn_out)
         id_attn_out = self.norm1(x_id + id_attn_out)
         
-        # Reshape back for frame attention
-        x_frame = id_attn_out.reshape(batch_size, num_ids, seq_len, -1) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
-        x_frame = x_frame.permute(0,2,1,3) # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
-        x_frame = x_frame.reshape(batch_size, seq_len, -1) # [batch_size, sequence_length, num_ids * HIDDEN_SIZE]
-        
-        # Self attention across frames with residual
-        frame_attn_out, _ = self.frame_attention(x_frame, x_frame, x_frame)
-        frame_attn_out = self.dropout(frame_attn_out)
-        frame_attn_out = self.norm2(x_frame + frame_attn_out)
-        
         # Reshape for temporal convolution
-        output = frame_attn_out.reshape(batch_size, seq_len, num_ids, -1) # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
-        output = output.permute(0, 2, 1, 3) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
-        output = output.reshape(batch_size * num_ids, seq_len, -1) # [batch_size*num_ids, sequence_length, HIDDEN_SIZE]
+        x_conv = id_attn_out.reshape(batch_size, num_ids, seq_len, -1) # [batch_size, num_ids, sequence_length, HIDDEN_SIZE]
+        x_conv = x_conv.permute(0,2,1,3) # [batch_size, sequence_length, num_ids, HIDDEN_SIZE]
+        x_conv = x_conv.reshape(batch_size, seq_len, -1) # [batch_size, sequence_length, num_ids * HIDDEN_SIZE]
         
         # Apply temporal convolution
-        output = self.temporal_conv(output) # [batch_size*num_ids, prediction_length, HIDDEN_SIZE]
+        output = self.temporal_conv(x_conv) # [batch_size, prediction_length, num_ids * HIDDEN_SIZE]
         
         # Reshape back and project to input feature size
-        output = output.reshape(batch_size, num_ids, self.prediction_length, -1) # [batch_size, num_ids, prediction_length, HIDDEN_SIZE]
-        output = output.permute(0, 2, 1, 3) # [batch_size, prediction_length, num_ids, HIDDEN_SIZE]
+        output = output.reshape(batch_size, self.prediction_length, num_ids, -1) # [batch_size, prediction_length, num_ids, HIDDEN_SIZE]
         output = self.output_proj(output)  # [batch_size, prediction_length, num_ids, 2]
         
         return output
