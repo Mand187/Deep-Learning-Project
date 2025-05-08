@@ -4,7 +4,7 @@ import os
 import multiprocessing as mp
 import torch
 from torchtnt.utils.data import CudaDataPrefetcher
-from Training.jutils import ColorPrinter, Colors
+from Training.jutils import ColorPrinter, Colors, wandb_login
 from Data.data_loading_jaskin import load_and_preprocess_data, create_tensor_from_dataframe, create_sequences, create_dataloaders 
 from Training.train_matt import Trainer
 from NextNet.model_split import FrameTransformer
@@ -176,6 +176,7 @@ def train_model(
 
 
 def main():
+    wandb_login()
     root_dir = os.getcwd()  # Use current working directory as root
     data_dir = os.path.join(root_dir, 'Data')
     csv_dir = os.path.join(data_dir, 'csv')

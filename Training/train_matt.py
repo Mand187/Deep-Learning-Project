@@ -12,7 +12,7 @@ import os
 import concurrent.futures
 # import gradscaling and mixed precision
 from torch.amp import GradScaler, autocast
-from Training.jutils import Colors, ColorPrinter, wandb_login
+from Training.jutils import Colors, ColorPrinter
 import json
 
 
@@ -48,7 +48,6 @@ class Trainer:
         self.wandb_dir = os.path.join(self.save_path, 'wandb')
         os.makedirs(self.wandb_dir, exist_ok=True)
         self.profile_dir = os.path.join(self.wandb_dir, 'profile')
-        wandb_login()
 
         self.use_early_stopping = False
         self.patience = 10
@@ -76,10 +75,12 @@ class Trainer:
     def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None, common_loss_fn=None):
         self.printer.print(f"{self.model_name}: Training for {num_epochs} epochs with learning rate {learningRate}")
         
+        model_params = sum(p.numel() for p in self.model.parameters())
         self.wandb_run = wandb.init(
             project="NextNet",
             name=self.model_name,
             id = self.model_name,
+            notes = f"Params: {model_params:,}",
             resume="allow",
             #sync_tensorboard=True,
             dir=self.wandb_dir,
