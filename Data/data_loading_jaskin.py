@@ -222,7 +222,7 @@ class VehiclePositionDataset(data.Dataset):
             raise
 
 
-def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES):
+def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES, train_batch_size=BATCH_SIZE, test_batch_size=TEST_BATCH_SIZE):
     """Create train and test dataloaders"""
     # Split data into train and test sets
     X_Train, X_Test, Y_Train, Y_Test = train_test_split(X, Y, test_size=0.2, random_state=42)
@@ -232,18 +232,18 @@ def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES):
     
     train_loader = data.DataLoader(
         train_dataset, 
-        batch_size=BATCH_SIZE,
+        batch_size=train_batch_size,
         shuffle=True, 
-        num_workers=NUM_WORKERS, 
+        num_workers=NUM_WORKERS * 2 // 3, 
         prefetch_factor=NUM_BATCHES_TO_PREFETCH if NUM_WORKERS > 0 else None, 
         pin_memory=True
     )
     
     test_loader = data.DataLoader(
         test_dataset, 
-        batch_size=BATCH_SIZE,
+        batch_size=test_batch_size,
         shuffle=False, 
-        num_workers=NUM_WORKERS, 
+        num_workers=NUM_WORKERS // 3, 
         prefetch_factor=NUM_BATCHES_TO_PREFETCH if NUM_WORKERS > 0 else None, 
         pin_memory=True
     )  

@@ -6,6 +6,8 @@ import torch.nn as nn
 import torch.optim as optim
 import os
 import concurrent.futures
+# import gradscaling and mixed precision
+from torch.amp import GradScaler, autocast
 from Training.jutils import Colors, ColorPrinter
 import json
 
@@ -75,6 +77,8 @@ class Trainer:
 
         self.train_losses, self.val_losses = [], []
         self.epoch_times = []
+        
+        scaler = GradScaler(device=self.device)
 
         total_start_time = time.time()
 
@@ -92,13 +96,15 @@ class Trainer:
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
 
                 optimizer.zero_grad()
-                outputs = self.model(inputs)
-                loss = criterion(outputs, targets)
+                with autocast(device_type=self.device.type, dtype=torch.float16):
+                    outputs = self.model(inputs)
+                    loss = criterion(outputs, targets)
 
                 # Ensure loss is a scalar
 
-                loss.backward()
-                optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
 
                 running_loss += loss.item()
 
@@ -112,13 +118,12 @@ class Trainer:
             with torch.no_grad():
                 for inputs, targets in self.testLoader:
                     inputs, targets = inputs.to(self.device), targets.to(self.device)
-
-                    outputs = self.model(inputs)
-                    outputs = outputs.view_as(targets)
-                    loss = criterion(outputs, targets)
+                    with autocast(device_type=self.device.type, dtype=torch.float16):
+                        outputs = self.model(inputs)
+                        #outputs = outputs.view_as(targets)
+                        loss = criterion(outputs, targets)
                     val_loss += loss.item()
                     common_loss += common_loss_fn(outputs, targets).item()
-
 
 
             val_loss /= len(self.testLoader.data_iterable)
@@ -138,8 +143,11 @@ class Trainer:
                 if val_loss < best_val_loss - self.delta:
                     best_val_loss = val_loss
                     patience_counter = 0
-                    self.save_model()
                     self.printer.print(f"{self.model_name}: Best Loss at epoch {epoch}: {best_val_loss:.4f}")
+                    self.pool.submit(self.save_model)
+                    self.pool.submit(self.save_history)
+                    self.pool.submit(self.push_history, epoch)
+                    
                 else:
                     patience_counter += 1
                     if patience_counter >= self.patience:
@@ -170,16 +178,8 @@ class Trainer:
     def save_model(self, *args, **kwargs):
         """Save the model to a file"""
         self.best_model_file_path = os.path.join(self.model_pickle_dir, f"{self.model_name}.pth")
-        #self.printer.print(f"{self.model_name}: Saving model to {self.best_model_file_path}")
-        self.save_history()
-        self.pool.submit(
-            torch.save,
-            self.model,
-            self.best_model_file_path,
-            *args,
-            **kwargs
-        )
-    
+        torch.save(self.model, self.best_model_file_path, *args, **kwargs)
+
     def save_history(self):
         history = {
             'common_losses': self.common_losses,
@@ -190,6 +190,10 @@ class Trainer:
         
         with open(self.history_file_path, 'w') as f:
             json.dump(history, f, indent=4)
+    def push_history(self, epoch):
+        os.system(f"git add {self.history_file_path}")
+        os.system(f"git commit -m 'Updated history for {self.model_name} at epoch {epoch}'")
+        os.system(f"git push origin main")
         
     def plot_losses(self):
         plot_filepath = os.path.join(self.plot_path, f"{self.model_name}_losses.png")
