@@ -11,3 +11,4 @@ runs/
 *.dtmp
 *.csv
 *.pth
+*.key

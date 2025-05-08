@@ -1,6 +1,10 @@
 import time
 import csv
+import config as cfg
+from NextNet.model_split import FrameTransformer
+import wandb
 import torch
+import torch.profiler
 import matplotlib.pyplot as plt
 import torch.nn as nn
 import torch.optim as optim
@@ -8,7 +12,7 @@ import os
 import concurrent.futures
 # import gradscaling and mixed precision
 from torch.amp import GradScaler, autocast
-from Training.jutils import Colors, ColorPrinter
+from Training.jutils import Colors, ColorPrinter, wandb_login
 import json
 
 
@@ -33,7 +37,7 @@ class Trainer:
         
         self.best_model_file_path = None
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
-        self.model = model
+        self.model: FrameTransformer = model
         self.save_path = save_path
         self.plot_path = plot_path
         self.model_name = model_name
@@ -41,9 +45,10 @@ class Trainer:
         self.testLoader = testLoader
         self.printer.print(f"{self.model_name}: \nTraining on device: {self.device}")
         self.model.to(self.device)
-        
-        
-        
+        self.wandb_dir = os.path.join(self.save_path, 'wandb')
+        os.makedirs(self.wandb_dir, exist_ok=True)
+        self.profile_dir = os.path.join(self.wandb_dir, 'profile')
+        wandb_login()
 
         self.use_early_stopping = False
         self.patience = 10
@@ -59,15 +64,52 @@ class Trainer:
         self.printer.print(f"{self.model_name}: Model Dir: {self.model_top_dir}")
         self.train_losses = []
         self.val_losses = []
-        self.common_losses = []
+        self.val_common_losses = []
+        self.train_common_losses
 
     def earlyStop(self, enable=True, patience=10, delta=0.0):
         self.use_early_stopping = enable
         self.patience = patience
         self.delta = delta
+            
 
     def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None, common_loss_fn=None):
         self.printer.print(f"{self.model_name}: Training for {num_epochs} epochs with learning rate {learningRate}")
+        
+        self.wandb_run = wandb.init(
+            project="NextNet",
+            name=self.model_name,
+            id = self.model_name,
+            resume="allow",
+            #sync_tensorboard=True,
+            dir=self.wandb_dir,
+            config={
+                "model_name": self.model_name,
+                "learning_rate": learningRate,
+                "batch_size": self.trainLoader.batch_size,
+                "num_epochs": 50,
+                "optimizer": optimizer.__class__.__name__,
+                "loss_function": criterion.__class__.__name__,
+                "common_loss_function": common_loss_fn.__class__.__name__,
+                "hidden_size": cfg.HIDDEN_SIZE,
+                "num_heads": cfg.NUM_HEADS,
+                "sequence_length": cfg.SEQUENCE_LENGTH,
+                "prediction_length": cfg.PREDICTION_LENGTH,
+                "dropout_rate": cfg.DROPOUT_RATE,
+                "weight_decay": cfg.WEIGHT_DECAY,
+                "Train Batch Size": cfg.BATCH_SIZE,
+                "Test Batch Size": cfg.TEST_BATCH_SIZE,
+            }
+        )
+        
+
+        self.wandb_run.define_metric("train/loss", summary="min", )
+        self.wandb_run.define_metric("val/loss", summary="min", )
+        self.wandb_run.define_metric("train/common_loss", summary="min", )
+        self.wandb_run.define_metric("train/common_loss", summary="min", )
+        self.wandb_run.define_metric("epoch_time", summary="avg", )
+        self.wandb_run.define_metric("train/avg_batch_time", summary="avg")
+        self.wandb_run.define_metric("val/avg_batch_time", summary="avg")
 
         if optimizer is None:
             optimizer = optim.Adam(self.model.parameters(), lr=learningRate)
@@ -82,78 +124,104 @@ class Trainer:
 
         total_start_time = time.time()
 
+        with self.wandb_run:
+            for epoch in range(1, num_epochs + 1):
+                epoch_start = time.time()
+                train_loss = 0.0  
+                val_loss = 0.0      
+                train_common_loss = 0.0
+                common_loss = 0.0
 
-        for epoch in range(1, num_epochs + 1):
-            epoch_start = time.time()
-            running_loss = 0.0  
-            val_loss = 0.0      
-            common_loss = 0.0
+                # --- Training ---
+                self.model.train()
 
-            # --- Training ---
-            self.model.train()
-
-            for inputs, targets in self.trainLoader:
-                inputs, targets = inputs.to(self.device), targets.to(self.device)
-
-                optimizer.zero_grad()
-                with autocast(device_type=self.device.type, dtype=torch.float16):
-                    outputs = self.model(inputs)
-                    loss = criterion(outputs, targets)
-
-                # Ensure loss is a scalar
-
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-
-                running_loss += loss.item()
-
-            train_loss = running_loss / len(self.trainLoader.data_iterable)
-            self.train_losses.append(train_loss)
-
-            # --- Validation ---
-            self.model.eval()
-            
-
-            with torch.no_grad():
-                for inputs, targets in self.testLoader:
+                running_batch_time = 0.0
+                
+                
+                for inputs, targets in self.trainLoader:
+                    batch_start_time = time.time()  
                     inputs, targets = inputs.to(self.device), targets.to(self.device)
+                    optimizer.zero_grad()
                     with autocast(device_type=self.device.type, dtype=torch.float16):
                         outputs = self.model(inputs)
-                        #outputs = outputs.view_as(targets)
-                        loss = criterion(outputs, targets)
-                    val_loss += loss.item()
-                    common_loss += common_loss_fn(outputs, targets).item()
+                        train_batch_loss = criterion(outputs, targets)
+                        train_common_loss += common_loss_fn(outputs, targets)
 
+                    # Ensure loss is a scalar
 
-            val_loss /= len(self.testLoader.data_iterable)
-            common_loss /= len(self.testLoader.data_iterable)
+                    scaler.scale(train_batch_loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
 
-            self.val_losses.append(val_loss)
-            self.common_losses.append(common_loss)
+                    train_loss += train_batch_loss.item()
+                    running_batch_time += (time.time() - batch_start_time)
+                avg_train_batch_time = running_batch_time / len(self.trainLoader.data_iterable)
+                train_loss = train_loss / len(self.trainLoader.data_iterable)
+                self.wandb_run.log(
+                    {
+                        "train/loss": train_loss,
+                        "train/common_loss": train_common_loss,
+                        "train/avg_batch_time": avg_train_batch_time,
+                    }
+                )
+                self.train_losses.append(train_loss)
+                self.train_common_losses.append(train_common_loss)
 
-            # Calculate epoch time and append to list
-            epoch_time = time.time() - epoch_start
-            self.epoch_times.append(epoch_time)
+                # --- Validation ---
+                self.model.eval()
+                
+                running_val_batch_time = 0.0
+                with torch.no_grad():
+                    for inputs, targets in self.testLoader:
+                        batch_start_time = time.time()
+                        inputs, targets = inputs.to(self.device), targets.to(self.device)
+                        with autocast(device_type=self.device.type, dtype=torch.float16):
+                            outputs = self.model(inputs)
+                            #outputs = outputs.view_as(targets)
+                            val_loss += criterion(outputs, targets).item()
+                            common_loss += common_loss_fn(outputs, targets).item()
+                        running_val_batch_time += (time.time() - batch_start_time)
+                avg_val_batch_time = running_val_batch_time / len(self.testLoader.data_iterable)
+                val_loss /= len(self.testLoader.data_iterable)
+                common_loss /= len(self.testLoader.data_iterable)
+                self.wandb_run.log(
+                    {
+                        "val/loss": val_loss,
+                        "val/common_loss": common_loss,
+                        "val/avg_batch_time": avg_val_batch_time,
+                    }
+                )
 
-            # Update main progress bar
-            self.printer.print(f"\r{self.model_name}: Epoch {epoch}/{num_epochs} - Common Loss: {common_loss:.4f} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f} - Time: {epoch_time:.2f}s", end='')
+                self.val_losses.append(val_loss)
+                self.val_common_losses.append(common_loss)
 
-            # --- Early Stopping ---
-            if self.use_early_stopping:
-                if val_loss < best_val_loss - self.delta:
-                    best_val_loss = val_loss
-                    patience_counter = 0
-                    self.printer.print(f"{self.model_name}: Best Loss at epoch {epoch}: {best_val_loss:.4f}")
-                    self.pool.submit(self.save_model)
-                    self.pool.submit(self.save_history)
-                    self.pool.submit(self.push_history, epoch)
-                    
-                else:
-                    patience_counter += 1
-                    if patience_counter >= self.patience:
-                        self.printer.print(f"\n{self.model_name}: Early stopping at epoch {epoch}")
-                        break
+                # Calculate epoch time and append to list
+                epoch_time = time.time() - epoch_start
+                self.epoch_times.append(epoch_time)
+                self.wandb_run.log(
+                    {
+                        "epoch_time": epoch_time,
+                    }
+                )
+
+                # Update main progress bar
+                self.printer.print(f"\r{self.model_name}: Epoch {epoch}/{num_epochs} - Common Loss: {common_loss:.4f} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f} - Time: {epoch_time:.2f}s", end='')
+
+                # --- Early Stopping ---
+                if self.use_early_stopping:
+                    if val_loss < best_val_loss - self.delta:
+                        best_val_loss = val_loss
+                        patience_counter = 0
+                        self.printer.print(f"{self.model_name}: Best Loss at epoch {epoch}: {best_val_loss:.4f}")
+                        self.pool.submit(self.save_model)
+                        self.pool.submit(self.save_history)
+                        self.pool.submit(self.push_history, epoch)
+                        
+                    else:
+                        patience_counter += 1
+                        if patience_counter >= self.patience:
+                            self.printer.print(f"\n{self.model_name}: Early stopping at epoch {epoch}")
+                            break
 
         total_time = time.time() - total_start_time
         self.printer.print(f"\n{self.model_name}: Training complete in {total_time:.2f} seconds, or {total_time / 60:.2f} minutes")
@@ -183,7 +251,7 @@ class Trainer:
 
     def save_history(self):
         history = {
-            'common_losses': self.common_losses,
+            'common_losses': self.val_common_losses,
             'train_losses': self.train_losses,
             'val_losses': self.val_losses,
             'epoch_times': self.epoch_times

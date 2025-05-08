@@ -1,5 +1,8 @@
 from enum import Enum
+
 import os
+import wandb
+from wandb import Settings
 class Colors(Enum):
     """
     ANSI escape sequences for colored text in the terminal.
@@ -17,6 +20,15 @@ class Colors(Enum):
     LIGHT_GREEN = "\033[38;5;82m"
     LIGHT_YELLOW = "\033[38;5;226m"
     LIGHT_RED = "\033[38;5;196m"
+
+def wandb_login(key_path: str = None) -> None:
+    if key_path is None:
+        key_path = 'wandb.key'
+    with open('wandb.key', 'r') as f:
+        wandb_key = f.read().strip()
+    os.environ["WANDB_API_KEY"] = wandb_key
+    wandb.login(key=wandb_key)
+    
 
 def print_color(text: str, color: Colors, *args, **kwargs) -> None:
     """

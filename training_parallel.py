@@ -82,6 +82,8 @@ def train_model(
     optimizer_kwargs
 ):
     try:
+        
+        
         # Explicitly initialize CUDA for this process
         # This might help with NVML issues in spawned processes
         if torch.cuda.is_available():
