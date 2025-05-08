@@ -230,7 +230,7 @@ train_prefetcher:CudaDataPrefetcher = CudaDataPrefetcher(data_iterable=train_loa
 test_prefetcher:CudaDataPrefetcher = CudaDataPrefetcher(data_iterable=test_loader, device=DEVICE, num_prefetch_batches=NUM_BATCHES_TO_PREFETCH)
 
 # %%
-class FrameTransformer(nn.Module):
+class NextNet(nn.Module):
     def __init__(self, input_feature_size=NUM_INPUT_FEATURES, num_ids=TRANSFORMER_MAX_IDS_PER_FRAME, sequence_length=SEQUENCE_LENGTH, prediction_length=PREDICTION_LENGTH):
         super().__init__()
         
@@ -335,7 +335,7 @@ class FrameTransformer(nn.Module):
 # model.load_state_dict(torch.load('Saved_Models/best_model.pth'))
 
 # ========== Model Parameters ==========
-model:FrameTransformer = FrameTransformer().to(DEVICE)
+model:NextNet = NextNet().to(DEVICE)
 total_params = sum([p.numel() for p in model.parameters()])
 print(f"Total Num Params in loaded model: {total_params:,}")
 
@@ -399,7 +399,7 @@ def linearOffset(input, offset, target):
     else: return min(0, max(offset, target - input))
 
 
-Loss_Function:nn.CrossEntropyLoss = nn.CrossEntropyLoss()
+Loss_Function:ADELoss = ADELoss()
 
 Optimizer_Function:torch.optim.Adam = torch.optim.Adam(
     params=model.parameters(),
@@ -411,7 +411,7 @@ Optimizer_Function:torch.optim.Adam = torch.optim.Adam(
 
 EPOCHS:int = 50
 
-MAXIMUM_TEST_LOSS:int = 0
+MAXIMUM_TEST_LOSS:int = 0 # maximum loss threshold before saving can occur
 SAVE_CHECKPOINTS:bool = False
 
 trainStartTime:float = time.time()
@@ -419,12 +419,16 @@ trainStartTime:float = time.time()
 trainEpochAverageBatchLoss:float
 testEpochAverageBatchLoss:float
 
+num_train_batches:int = len(train_loader)
+num_test_batches:int = len(test_loader)
+        
 while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpochAverageBatchLoss > testEpochAverageBatchLoss + linearOffset(input=testEpochAverageBatchLoss, offset=-3, target=1) or bestTestLoss > MAXIMUM_TEST_LOSS):
     epochStartTime:float = time.time()
     model.train()
-    
     totalTrainLossInEpoch:float = 0
-    for X_train_batch, Y_train_batch in train_prefetcher:
+    for i, (X_train_batch, Y_train_batch) in enumerate(train_prefetcher):
+        if i % 50 == 0:
+            print(f"\rTRAIN LOOP \t| Processing Batch {i+1}/{num_train_batches}", end='', flush=True)
         X_train_batch:torch.Tensor = X_train_batch.to(DEVICE, non_blocking=True)
         Y_train_batch:torch.Tensor = Y_train_batch.to(DEVICE, non_blocking=True)
         
@@ -442,11 +446,13 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
     model.eval()
     
     with torch.inference_mode():
-        trainEpochAverageBatchLoss:float = totalTrainLossInEpoch/len(train_loader)
+        trainEpochAverageBatchLoss:float = totalTrainLossInEpoch/num_train_batches
         avgTrainBatchLossPerEpoch += [trainEpochAverageBatchLoss]
         
         totalTestLossInEpoch:float = 0
-        for X_test_batch, Y_test_batch in test_prefetcher:
+        for i, (X_test_batch, Y_test_batch) in enumerate(test_prefetcher):
+            if i % 50 == 0:
+                print(f"\rTEST LOOP \t| Processing Batch {i+1}/{num_test_batches}", end='', flush=True)
             X_test_batch:torch.Tensor = X_test_batch.to(DEVICE, non_blocking=True)
             Y_test_batch:torch.Tensor = Y_test_batch.to(DEVICE, non_blocking=True)
         
@@ -456,7 +462,7 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
     
             totalTestLossInEpoch += testBatchLoss
         
-        testEpochAverageBatchLoss:float = totalTestLossInEpoch/len(test_loader)
+        testEpochAverageBatchLoss:float = totalTestLossInEpoch/num_test_batches
         avgTestBatchLossPerEpoch += [testEpochAverageBatchLoss]
         
         epochTime:float = time.time() - epochStartTime
