@@ -73,13 +73,13 @@ class TaskTuple:
             'num_ids': self.num_ids,
             'sequence_length': self.sequence_length,
             'save_model_dir': self.save_model_dir,
-            'model_kwargs': self.model_kwargs.__dict__(),
+            'model_kwargs': self.model_kwargs,
             'loss_fn': self.loss_fn.__class__.__name__,
             'common_loss_fn': self.common_loss_fn.__class__.__name__,
             'learning_rate': self.learning_rate,
             'num_epochs': self.num_epochs,
             'gpu_id': self.gpu_id,
-            'optimizer_kwargs': self.optimizer_kwargs.__dict__(),
+            'optimizer_kwargs': self.optimizer_kwargs,
         }
 
 
@@ -212,9 +212,9 @@ def create_wandb_run(
     wandb_run.define_metric("val/loss", summary="min", )
     wandb_run.define_metric("train/common_loss", summary="min", )
     wandb_run.define_metric("train/common_loss", summary="min", )
-    wandb_run.define_metric("epoch_time", summary="avg", )
-    wandb_run.define_metric("train/avg_batch_time", summary="avg")
-    wandb_run.define_metric("val/avg_batch_time", summary="avg")
+    wandb_run.define_metric("epoch_time", summary="mean", )
+    wandb_run.define_metric("train/avg_batch_time", summary="mean")
+    wandb_run.define_metric("val/avg_batch_time", summary="mean")
     return wandb_run
 
 def main():

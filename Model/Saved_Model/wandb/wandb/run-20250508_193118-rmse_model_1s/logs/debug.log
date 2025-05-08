@@ -1,0 +1,23 @@
+2025-05-08 19:31:18,646 INFO    MainThread:349479 [wandb_setup.py:_flush():70] Current SDK version is 0.19.11
+2025-05-08 19:31:18,647 INFO    MainThread:349479 [wandb_setup.py:_flush():70] Configure stats pid to 349479
+2025-05-08 19:31:18,647 INFO    MainThread:349479 [wandb_setup.py:_flush():70] Loading settings from /home/jkabir/.config/wandb/settings
+2025-05-08 19:31:18,647 INFO    MainThread:349479 [wandb_setup.py:_flush():70] Loading settings from /home/jkabir/Deep-Learning-Project/wandb/settings
+2025-05-08 19:31:18,647 INFO    MainThread:349479 [wandb_setup.py:_flush():70] Loading settings from environment variables
+2025-05-08 19:31:18,647 INFO    MainThread:349479 [wandb_init.py:setup_run_log_directory():724] Logging user logs to /home/jkabir/Deep-Learning-Project/Model/Saved_Model/wandb/wandb/run-20250508_193118-rmse_model_1s/logs/debug.log
+2025-05-08 19:31:18,647 INFO    MainThread:349479 [wandb_init.py:setup_run_log_directory():725] Logging internal logs to /home/jkabir/Deep-Learning-Project/Model/Saved_Model/wandb/wandb/run-20250508_193118-rmse_model_1s/logs/debug-internal.log
+2025-05-08 19:31:18,647 INFO    MainThread:349479 [wandb_init.py:init():852] calling init triggers
+2025-05-08 19:31:18,647 INFO    MainThread:349479 [wandb_init.py:init():857] wandb.init called with sweep_config: {}
+config: {'model_name': 'rmse_model_1s', 'train_loader': <torch.utils.data.dataloader.DataLoader object at 0x7fb922b172e0>, 'test_loader': <torch.utils.data.dataloader.DataLoader object at 0x7fb922b17370>, 'prediction_length': 30, 'num_ids': 20, 'sequence_length': 100, 'save_model_dir': '/home/jkabir/Deep-Learning-Project/Model/Saved_Model', 'model_kwargs': {'hidden_size': 104, 'num_heads': 8, 'dropout_rate': 0.1}, 'loss_fn': 'RMSELoss', 'common_loss_fn': 'ADELoss', 'learning_rate': 0.001, 'num_epochs': 50, 'gpu_id': 0, 'optimizer_kwargs': {}, '_wandb': {}}
+2025-05-08 19:31:18,647 INFO    MainThread:349479 [wandb_init.py:init():893] starting backend
+2025-05-08 19:31:18,647 INFO    MainThread:349479 [wandb_init.py:init():897] sending inform_init request
+2025-05-08 19:31:18,664 INFO    MainThread:349479 [backend.py:_multiprocessing_setup():101] multiprocessing start_methods=fork,spawn,forkserver, using: spawn
+2025-05-08 19:31:18,664 INFO    MainThread:349479 [wandb_init.py:init():907] backend started and connected
+2025-05-08 19:31:18,672 INFO    MainThread:349479 [wandb_init.py:init():1005] updated telemetry
+2025-05-08 19:31:18,730 INFO    MainThread:349479 [wandb_init.py:init():1029] communicating run to backend with 90.0 second timeout
+2025-05-08 19:31:19,209 INFO    MainThread:349479 [wandb_init.py:init():1104] starting run threads in backend
+2025-05-08 19:31:19,596 INFO    MainThread:349479 [wandb_run.py:_console_start():2573] atexit reg
+2025-05-08 19:31:19,598 INFO    MainThread:349479 [wandb_run.py:_redirect():2421] redirect: wrap_raw
+2025-05-08 19:31:19,598 INFO    MainThread:349479 [wandb_run.py:_redirect():2490] Wrapping output streams.
+2025-05-08 19:31:19,598 INFO    MainThread:349479 [wandb_run.py:_redirect():2513] Redirects installed.
+2025-05-08 19:31:19,602 INFO    MainThread:349479 [wandb_init.py:init():1150] run started, returning control to user process
+2025-05-08 19:31:19,727 INFO    MsgRouterThr:349479 [mailbox.py:close():129] [no run ID] Closing mailbox, abandoning 1 handles.

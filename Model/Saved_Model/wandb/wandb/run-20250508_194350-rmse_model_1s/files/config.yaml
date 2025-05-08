@@ -1,0 +1,97 @@
+_wandb:
+    value:
+        cli_version: 0.19.11
+        m:
+            - "1": val/avg_batch_time
+              "6":
+                - 3
+              "7":
+                - 3
+            - "1": train/loss
+              "6":
+                - 3
+              "7":
+                - 1
+            - "1": val/loss
+              "6":
+                - 3
+              "7":
+                - 1
+            - "1": train/common_loss
+              "6":
+                - 3
+              "7":
+                - 1
+            - "1": epoch_time
+              "6":
+                - 3
+              "7":
+                - 3
+            - "1": train/avg_batch_time
+              "6":
+                - 3
+              "7":
+                - 3
+        python_version: 3.8.13
+        t:
+            "1":
+                - 1
+                - 5
+                - 53
+                - 55
+            "2":
+                - 1
+                - 5
+                - 53
+                - 55
+            "3":
+                - 5
+                - 7
+                - 13
+                - 14
+                - 16
+                - 23
+                - 24
+                - 33
+                - 55
+                - 62
+                - 63
+            "4": 3.8.13
+            "5": 0.19.11
+            "8":
+                - 5
+            "12": 0.19.11
+            "13": linux-x86_64
+common_loss_fn:
+    value: ADELoss
+device:
+    value: cuda:3
+gpu_id:
+    value: 0
+learning_rate:
+    value: 0.001
+loss_fn:
+    value: RMSELoss
+model_kwargs:
+    value:
+        dropout_rate: 0.1
+        hidden_size: 104
+        num_heads: 8
+model_name:
+    value: rmse_model_1s
+num_epochs:
+    value: 50
+num_ids:
+    value: 20
+params:
+    value: 450072480
+prediction_length:
+    value: 30
+save_model_dir:
+    value: /home/jkabir/Deep-Learning-Project/Model/Saved_Model
+sequence_length:
+    value: 100
+test_loader:
+    value: <torch.utils.data.dataloader.DataLoader object at 0x7ff7d2dc3880>
+train_loader:
+    value: <torch.utils.data.dataloader.DataLoader object at 0x7ff7d2db9e50>

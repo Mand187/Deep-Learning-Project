@@ -1,0 +1,60 @@
+{
+  "os": "Linux-5.4.0-215-generic-x86_64-with-glibc2.27",
+  "python": "CPython 3.8.13",
+  "startedAt": "2025-05-08T23:32:10.473755Z",
+  "program": "training_parallel.py",
+  "codePath": "training_parallel.py",
+  "git": {
+    "remote": "git@github.com:Mand187/Deep-Learning-Project.git",
+    "commit": "62de836e19486fb98b2d8d70a0e6345b09112d5c"
+  },
+  "email": "jkabir@uncc.edu",
+  "root": "/home/jkabir/Deep-Learning-Project/Model/Saved_Model/wandb",
+  "host": "tecsarai",
+  "executable": "/home/jkabir/env/bin/python",
+  "codePathLocal": "training_parallel.py",
+  "cpu_count": 20,
+  "cpu_count_logical": 40,
+  "gpu": "Tesla V100-PCIE-32GB",
+  "gpu_count": 4,
+  "disk": {
+    "/": {
+      "total": "3936816709632",
+      "used": "3378296795136"
+    }
+  },
+  "memory": {
+    "total": "270104383488"
+  },
+  "cpu": {
+    "count": 20,
+    "countLogical": 40
+  },
+  "gpu_nvidia": [
+    {
+      "name": "Tesla V100-PCIE-32GB",
+      "memoryTotal": "34359738368",
+      "cudaCores": 5120,
+      "architecture": "Volta"
+    },
+    {
+      "name": "Tesla V100-PCIE-32GB",
+      "memoryTotal": "34359738368",
+      "cudaCores": 5120,
+      "architecture": "Volta"
+    },
+    {
+      "name": "Tesla V100-PCIE-32GB",
+      "memoryTotal": "34359738368",
+      "cudaCores": 5120,
+      "architecture": "Volta"
+    },
+    {
+      "name": "Tesla V100-PCIE-32GB",
+      "memoryTotal": "34359738368",
+      "cudaCores": 5120,
+      "architecture": "Volta"
+    }
+  ],
+  "cudaVersion": "12.8"
+}

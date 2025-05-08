@@ -78,7 +78,7 @@ class Trainer:
         self.train_losses = []
         self.val_losses = []
         self.val_common_losses = []
-        self.train_common_losses
+        self.train_common_losses = 0
 
     def earlyStop(self, enable=True, patience=10, delta=0.0):
         self.use_early_stopping = enable

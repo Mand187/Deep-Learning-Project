@@ -18,7 +18,7 @@ SEQUENCE_LENGTH = 100  # Number of frames in input sequence
 PREDICTION_LENGTH = 30  # Number of future frames to predict
 
 # DataLoader parameters
-NUM_WORKERS = 12
+NUM_WORKERS = 0
 NUM_BATCHES_TO_PREFETCH = 2
 BATCH_SIZE = 64
 TEST_BATCH_SIZE = 128

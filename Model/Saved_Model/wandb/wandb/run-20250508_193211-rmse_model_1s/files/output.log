@@ -1,0 +1,135 @@
+[32mStarting task 2/4 on GPU 1[0m
+[34m[1mwandb[0m: wandb.init() called while a run is active and reinit is set to 'default', so returning the previous run.
+[32mStarting task 3/4 on GPU 2[0m
+[34m[1mwandb[0m: wandb.init() called while a run is active and reinit is set to 'default', so returning the previous run.
+[32mStarting task 4/4 on GPU 3[0m
+[34m[1mwandb[0m: wandb.init() called while a run is active and reinit is set to 'default', so returning the previous run.
+[36mRetrieving results/exceptions from tasks...[0m
+[33mMAIN PROCESS EXCEPTION for task rmse_model_1s (GPU 0) on .get(): AssertionError: daemonic processes are not allowed to have children[0m
+[31mmultiprocessing.pool.RemoteTraceback:
+"""
+Traceback (most recent call last):
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+  File "/home/jkabir/Deep-Learning-Project/training_parallel.py", line 140, in train_model
+    train_prefetcher = CudaDataPrefetcher(
+  File "/home/jkabir/env/lib/python3.8/site-packages/torchtnt/utils/data/data_prefetcher.py", line 63, in __init__
+    self._reset()
+  File "/home/jkabir/env/lib/python3.8/site-packages/torchtnt/utils/data/data_prefetcher.py", line 70, in _reset
+    self.data_iter = iter(self.data_iterable)
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 440, in __iter__
+    return self._get_iterator()
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 388, in _get_iterator
+    return _MultiProcessingDataLoaderIter(self)
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 1038, in __init__
+    w.start()
+  File "/usr/lib/python3.8/multiprocessing/process.py", line 118, in start
+    assert not _current_process._config.get('daemon'), \
+AssertionError: daemonic processes are not allowed to have children
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "training_parallel.py", line 408, in main
+    task_result = res_async.get() # This will re-raise exceptions from the child process
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 771, in get
+    raise self._value
+AssertionError: daemonic processes are not allowed to have children
+[0m
+[33mMAIN PROCESS EXCEPTION for task rmse_model_2s (GPU 1) on .get(): AssertionError: daemonic processes are not allowed to have children[0m
+[31mmultiprocessing.pool.RemoteTraceback:
+"""
+Traceback (most recent call last):
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+  File "/home/jkabir/Deep-Learning-Project/training_parallel.py", line 140, in train_model
+    train_prefetcher = CudaDataPrefetcher(
+  File "/home/jkabir/env/lib/python3.8/site-packages/torchtnt/utils/data/data_prefetcher.py", line 63, in __init__
+    self._reset()
+  File "/home/jkabir/env/lib/python3.8/site-packages/torchtnt/utils/data/data_prefetcher.py", line 70, in _reset
+    self.data_iter = iter(self.data_iterable)
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 440, in __iter__
+    return self._get_iterator()
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 388, in _get_iterator
+    return _MultiProcessingDataLoaderIter(self)
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 1038, in __init__
+    w.start()
+  File "/usr/lib/python3.8/multiprocessing/process.py", line 118, in start
+    assert not _current_process._config.get('daemon'), \
+AssertionError: daemonic processes are not allowed to have children
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "training_parallel.py", line 408, in main
+    task_result = res_async.get() # This will re-raise exceptions from the child process
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 771, in get
+    raise self._value
+AssertionError: daemonic processes are not allowed to have children
+[0m
+[33mMAIN PROCESS EXCEPTION for task rmse_model_3s (GPU 2) on .get(): AssertionError: daemonic processes are not allowed to have children[0m
+[31mmultiprocessing.pool.RemoteTraceback:
+"""
+Traceback (most recent call last):
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+  File "/home/jkabir/Deep-Learning-Project/training_parallel.py", line 140, in train_model
+    train_prefetcher = CudaDataPrefetcher(
+  File "/home/jkabir/env/lib/python3.8/site-packages/torchtnt/utils/data/data_prefetcher.py", line 63, in __init__
+    self._reset()
+  File "/home/jkabir/env/lib/python3.8/site-packages/torchtnt/utils/data/data_prefetcher.py", line 70, in _reset
+    self.data_iter = iter(self.data_iterable)
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 440, in __iter__
+    return self._get_iterator()
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 388, in _get_iterator
+    return _MultiProcessingDataLoaderIter(self)
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 1038, in __init__
+    w.start()
+  File "/usr/lib/python3.8/multiprocessing/process.py", line 118, in start
+    assert not _current_process._config.get('daemon'), \
+AssertionError: daemonic processes are not allowed to have children
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "training_parallel.py", line 408, in main
+    task_result = res_async.get() # This will re-raise exceptions from the child process
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 771, in get
+    raise self._value
+AssertionError: daemonic processes are not allowed to have children
+[0m
+[33mMAIN PROCESS EXCEPTION for task rmse_model_4s (GPU 3) on .get(): AssertionError: daemonic processes are not allowed to have children[0m
+[31mmultiprocessing.pool.RemoteTraceback:
+"""
+Traceback (most recent call last):
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+  File "/home/jkabir/Deep-Learning-Project/training_parallel.py", line 140, in train_model
+    train_prefetcher = CudaDataPrefetcher(
+  File "/home/jkabir/env/lib/python3.8/site-packages/torchtnt/utils/data/data_prefetcher.py", line 63, in __init__
+    self._reset()
+  File "/home/jkabir/env/lib/python3.8/site-packages/torchtnt/utils/data/data_prefetcher.py", line 70, in _reset
+    self.data_iter = iter(self.data_iterable)
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 440, in __iter__
+    return self._get_iterator()
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 388, in _get_iterator
+    return _MultiProcessingDataLoaderIter(self)
+  File "/home/jkabir/env/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 1038, in __init__
+    w.start()
+  File "/usr/lib/python3.8/multiprocessing/process.py", line 118, in start
+    assert not _current_process._config.get('daemon'), \
+AssertionError: daemonic processes are not allowed to have children
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "training_parallel.py", line 408, in main
+    task_result = res_async.get() # This will re-raise exceptions from the child process
+  File "/usr/lib/python3.8/multiprocessing/pool.py", line 771, in get
+    raise self._value
+AssertionError: daemonic processes are not allowed to have children
+[0m

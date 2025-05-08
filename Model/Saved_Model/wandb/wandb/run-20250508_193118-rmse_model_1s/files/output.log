@@ -1,0 +1,37 @@
+[34m[1mwandb[0m: [32m[41mERROR[0m Unhandled define_metric() arg: summary op: avg
+Traceback (most recent call last):
+  File "training_parallel.py", line 423, in <module>
+    main()
+  File "training_parallel.py", line 392, in main
+    wandb_run = create_wandb_run(config=task.__dict__())
+  File "training_parallel.py", line 215, in create_wandb_run
+    wandb_run.define_metric("epoch_time", summary="avg", )
+  File "/home/jkabir/env/lib/python3.8/site-packages/wandb/sdk/wandb_run.py", line 406, in wrapper
+    return func(self, *args, **kwargs)
+  File "/home/jkabir/env/lib/python3.8/site-packages/wandb/sdk/wandb_run.py", line 464, in wrapper_fn
+    return func(self, *args, **kwargs)
+  File "/home/jkabir/env/lib/python3.8/site-packages/wandb/sdk/wandb_run.py", line 451, in wrapper
+    return func(self, *args, **kwargs)
+  File "/home/jkabir/env/lib/python3.8/site-packages/wandb/sdk/wandb_run.py", line 2911, in define_metric
+    return self._define_metric(
+  File "/home/jkabir/env/lib/python3.8/site-packages/wandb/sdk/wandb_run.py", line 2963, in _define_metric
+    raise wandb.Error(f"Unhandled define_metric() arg: summary op: {i}")
+wandb.errors.errors.Error: Unhandled define_metric() arg: summary op: avg
+Traceback (most recent call last):
+  File "training_parallel.py", line 423, in <module>
+    main()
+  File "training_parallel.py", line 392, in main
+    wandb_run = create_wandb_run(config=task.__dict__())
+  File "training_parallel.py", line 215, in create_wandb_run
+    wandb_run.define_metric("epoch_time", summary="avg", )
+  File "/home/jkabir/env/lib/python3.8/site-packages/wandb/sdk/wandb_run.py", line 406, in wrapper
+    return func(self, *args, **kwargs)
+  File "/home/jkabir/env/lib/python3.8/site-packages/wandb/sdk/wandb_run.py", line 464, in wrapper_fn
+    return func(self, *args, **kwargs)
+  File "/home/jkabir/env/lib/python3.8/site-packages/wandb/sdk/wandb_run.py", line 451, in wrapper
+    return func(self, *args, **kwargs)
+  File "/home/jkabir/env/lib/python3.8/site-packages/wandb/sdk/wandb_run.py", line 2911, in define_metric
+    return self._define_metric(
+  File "/home/jkabir/env/lib/python3.8/site-packages/wandb/sdk/wandb_run.py", line 2963, in _define_metric
+    raise wandb.Error(f"Unhandled define_metric() arg: summary op: {i}")
+wandb.errors.errors.Error: Unhandled define_metric() arg: summary op: avg
