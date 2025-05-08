@@ -177,25 +177,30 @@ class PaddedMSELoss(nn.Module):
         # Create a mask for non-padded values
         mask = (targets != PADDING_TOKEN).all(dim=-1, keepdim=True).float() # Ensure mask is broadcastable
         
-        # Calculate element-wise squared error
-        squared_error = (predictions - targets)**2
+        predictions = predictions * mask # Apply mask to predictions
+        targets = targets * mask
+        return self.mse(predictions, targets)
         
-        # Apply mask to the squared error
-        masked_squared_error = squared_error * mask
         
-        if self.reduction == 'mean':
-            # Sum masked errors and divide by the count of non-padded elements
-            # The number of elements to average over is the sum of the mask (where mask is 1 for valid, 0 for padded)
-            # We need to sum over all dimensions of the mask that correspond to the error tensor.
-            # Since squared_error is [B, P, N, F], and mask is [B, P, N, 1] (after keepdim=True),
-            # the number of valid elements is mask.sum().
-            # Ensure we don't divide by zero if all elements are padded.
-            num_valid_elements = mask.sum().clamp(min=1.0)
-            return masked_squared_error.sum() / num_valid_elements
-        elif self.reduction == 'sum':
-            return masked_squared_error.sum()
-        else: # 'none'
-            # If reduction is 'none', we should return the masked squared error per element.
-            # However, nn.MSELoss(reduction='none') would return element-wise SE.
-            # To be consistent, if the user wants 'none', they likely expect the masked SE.
-            return masked_squared_error
+        # # Calculate element-wise squared error
+        # squared_error = (predictions - targets)**2
+        
+        # # Apply mask to the squared error
+        # masked_squared_error = squared_error * mask
+        
+        # if self.reduction == 'mean':
+        #     # Sum masked errors and divide by the count of non-padded elements
+        #     # The number of elements to average over is the sum of the mask (where mask is 1 for valid, 0 for padded)
+        #     # We need to sum over all dimensions of the mask that correspond to the error tensor.
+        #     # Since squared_error is [B, P, N, F], and mask is [B, P, N, 1] (after keepdim=True),
+        #     # the number of valid elements is mask.sum().
+        #     # Ensure we don't divide by zero if all elements are padded.
+        #     num_valid_elements = mask.sum().clamp(min=1.0)
+        #     return masked_squared_error.sum() / num_valid_elements
+        # elif self.reduction == 'sum':
+        #     return masked_squared_error.sum()
+        # else: # 'none'
+        #     # If reduction is 'none', we should return the masked squared error per element.
+        #     # However, nn.MSELoss(reduction='none') would return element-wise SE.
+        #     # To be consistent, if the user wants 'none', they likely expect the masked SE.
+        #     return masked_squared_error
