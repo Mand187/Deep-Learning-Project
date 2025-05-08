@@ -28,26 +28,30 @@ def lane_loss(predicted, lane_positions, mask=None):
 
 class ADELoss(nn.Module):
     def __init__(self, reduction='mean'):
-        super(ADELoss, self).__init__()
+        super().__init__()
         self.reduction = reduction
+        
     def forward(self, predictions, targets):
         """
         Calculate the Average Displacement Error (ADE), ignoring padded values.
-        predictions: (batch_size, sequence_length, num_features) e.g., (B, T, 2)
-        targets: (batch_size, sequence_length, num_features) e.g., (B, T, 2)
+        
+        predictions & targets.shape: [batch_size, prediction_length, num_ids, 2]
+        
+        return.shape: 1 if reduction = 'mean' or 'sum' else predictions & targets.shape
         """
         # Check if predictions and targets have the same shape
         if predictions.shape != targets.shape:
             print(f"Predictions shape: {predictions.shape}, Targets shape: {targets.shape}")
             raise ValueError("Predictions and targets must have the same shape.")
 
-        # Calculate Euclidean distance (L2 norm) across the last dimension (x,y coordinates)
-        # euclidean_distance will have shape (batch_size, sequence_length)
+        # Calculate Euclidean distance (MSE norm) across the last dimension (x,y coordinates)
+        # IE: √[(pred_x - tgt_x)^2 + (pred_y - tgt_y)^2]
+        # euclidean_distance will have shape [batch_size, prediction_length, num_ids]
         euclidean_distance = torch.linalg.vector_norm(predictions - targets, dim=-1)
 
         # Create a mask for valid (non-padded) target values.
         # A target point (e.g., x,y coordinates) is considered valid if all its features are not -1.
-        # valid_mask will be a boolean tensor of shape (batch_size, sequence_length).
+        # valid_mask will be a boolean tensor of shape [batch_size, prediction_length, num_ids].
         # It's True for non-padded time steps, False for padded ones.
         valid_mask = (targets != PADDING_TOKEN).all(dim=-1)
         
@@ -84,10 +88,17 @@ class ADELoss(nn.Module):
 
 class FDELoss(nn.Module):
     def __init__(self, reduction='mean'):
-        super(FDELoss, self).__init__()
+        super().__init__()
         self.reduction = reduction
         
     def forward(self, predictions, targets):
+        """
+        Calculate Final Displacement Error (FDE) loss, ignoring padded values.
+        
+        predictions & targets.shape: [batch_size, prediction_length, num_ids, 2]
+        
+        return.shape: 1 if reduction = 'mean' or 'sum' else predictions & targets.shape
+        """
         
         if predictions.shape != targets.shape:
             print(f"Predictions shape: {predictions.shape}, Targets shape: {targets.shape}")
@@ -130,10 +141,18 @@ class FDELoss(nn.Module):
 
 class RMSELoss(nn.Module):
     def __init__(self, reduction='mean'):
-        super(RMSELoss, self).__init__()
+        super().__init__()
         self.mse_loss = PaddedMSELoss(reduction=reduction)
         
     def forward(self, predictions, targets):
+        """
+        Calculate Square root of the Mean Squared Error (MSE) loss, ignoring padded values.
+        
+        predictions & targets.shape: [batch_size, prediction_length, num_ids, 2]
+        
+        return.shape: 1 if reduction = 'mean' or 'sum' else predictions & targets.shape
+        """
+        
         # Compute MSE loss and take the square root
         mse = self.mse_loss(predictions, targets)
         return torch.sqrt(mse)
@@ -150,7 +169,7 @@ class PaddedMSELoss(nn.Module):
         
         predictions & targets.shape: [batch_size, prediction_length, num_ids, 2]
         
-        return.shape: 1
+        return.shape: 1 if reduction = 'mean' or 'sum' else predictions & targets.shape
         """
         
         # Check if predictions and targets have the same shape
