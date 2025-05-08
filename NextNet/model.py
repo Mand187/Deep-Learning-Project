@@ -404,9 +404,9 @@ def linearOffset(input, offset, target):
 
 Loss_Function:ADELoss = ADELoss()
 
-Optimizer_Function:torch.optim.Adam = torch.optim.Adam(
+Optimizer_Function:torch.optim.AdamW = torch.optim.AdamW(
     params=model.parameters(),
-    lr=0.001,
+    lr=0.0001,
     betas=(0.9, 0.98),
     eps=1e-9,
     weight_decay=1e-5
@@ -414,8 +414,8 @@ Optimizer_Function:torch.optim.Adam = torch.optim.Adam(
 
 EPOCHS:int = 25
 
-MAXIMUM_TEST_LOSS:int = 0 # maximum loss threshold before saving can occur
-SAVE_CHECKPOINTS:bool = False
+MAXIMUM_TEST_LOSS:int = 4 # maximum loss threshold before saving can occur
+SAVE_CHECKPOINTS:bool = True
 
 trainStartTime:float = time.time()
 
@@ -429,6 +429,8 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
     epochStartTime:float = time.time()
     model.train()
     totalTrainLossInEpoch:float = 0
+    batch_start_time = time.time()
+    
     for i, (X_train_batch, Y_train_batch) in enumerate(train_prefetcher):
         X_train_batch:torch.Tensor = X_train_batch.to(DEVICE, non_blocking=True)
         Y_train_batch:torch.Tensor = Y_train_batch.to(DEVICE, non_blocking=True)
@@ -444,7 +446,12 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
         totalTrainLossInEpoch += trainBatchLoss
         
         if i % 50 == 0:
-            print(f"\rTRAIN LOOP \t| Processed Batch {i+1}/{num_train_batches} \t| Batch Loss: {trainBatchLoss:.5f}", end='', flush=True)
+            elapsed_time = time.time() - batch_start_time
+            time_per_batch = elapsed_time / (i+1)
+            remaining_time = time_per_batch * (num_train_batches - i - 1)
+            hours, rem = divmod(remaining_time, 3600)
+            minutes, seconds = divmod(rem, 60)
+            print(f"\rTRAIN LOOP \t| Processed Batch {i+1}/{num_train_batches} \t| Batch Loss: {trainBatchLoss:.5f} \t| ETA: {int(hours):02}:{int(minutes):02}:{int(seconds):02}", end='', flush=True)
         
     
     model.eval()
@@ -454,6 +461,8 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
         avgTrainBatchLossPerEpoch += [trainEpochAverageBatchLoss]
         
         totalTestLossInEpoch:float = 0
+        batch_start_time = time.time()
+        
         for i, (X_test_batch, Y_test_batch) in enumerate(test_prefetcher):
             X_test_batch:torch.Tensor = X_test_batch.to(DEVICE, non_blocking=True)
             Y_test_batch:torch.Tensor = Y_test_batch.to(DEVICE, non_blocking=True)
@@ -465,17 +474,24 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
             totalTestLossInEpoch += testBatchLoss
             
             if i % 50 == 0:
-                print(f"\rTEST LOOP \t| Processed Batch {i+1}/{num_test_batches} \t| Batch Loss: {testBatchLoss:.5f}", end='', flush=True)
+                elapsed_time = time.time() - batch_start_time
+                time_per_batch = elapsed_time / (i+1)
+                remaining_time = time_per_batch * (num_test_batches - i - 1)
+                hours, rem = divmod(remaining_time, 3600)
+                minutes, seconds = divmod(rem, 60)
+                print(f"\rTEST LOOP \t| Processed Batch {i+1}/{num_test_batches} \t| Batch Loss: {testBatchLoss:.5f} \t| ETA: {int(hours):02}:{int(minutes):02}:{int(seconds):02}", end='', flush=True)
         
         testEpochAverageBatchLoss:float = totalTestLossInEpoch/num_test_batches
         avgTestBatchLossPerEpoch += [testEpochAverageBatchLoss]
         
         epochTime:float = time.time() - epochStartTime
-        estRemainingTime:float = (EPOCHS - epochIterator - 1)*epochTime / 60
+        estRemainingTime:float = (EPOCHS - epochIterator - 1)*epochTime
+        hours, rem = divmod(estRemainingTime, 3600)
+        minutes, seconds = divmod(rem, 60)
         print("", end="", flush=True)
-        print(f"\nepoch: {epochIterator} \t| train loss: {trainEpochAverageBatchLoss:.5f} \t| test loss: {testEpochAverageBatchLoss:.5f} \t| TTG: {int(estRemainingTime):02}:{int((estRemainingTime - int(estRemainingTime))*60):02}")
+        print(f"\nepoch: {epochIterator} \t| train loss: {trainEpochAverageBatchLoss:.5f} \t| test loss: {testEpochAverageBatchLoss:.5f} \t| TTG: {int(hours):02}:{int(minutes):02}:{int(seconds):02}")
         
-        newBestModel:bool = testEpochAverageBatchLoss < MAXIMUM_TEST_LOSS and testEpochAverageBatchLoss < bestTestLoss or bestTestLoss == -1
+        newBestModel:bool = testEpochAverageBatchLoss < MAXIMUM_TEST_LOSS and (testEpochAverageBatchLoss < bestTestLoss or bestTestLoss == -1)
         if newBestModel: 
             bestTestLoss:float = testEpochAverageBatchLoss
             print(f"↑↑↑↑↑↑↑↑↑↑↑↑↑ NEW BEST MODEL ↑↑↑↑↑↑↑↑↑↑↑↑↑")
