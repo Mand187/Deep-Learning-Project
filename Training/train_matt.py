@@ -1,5 +1,7 @@
 import time
 import csv
+
+import wandb.wandb_run
 import config as cfg
 from NextNet.model_split import FrameTransformer
 import wandb
@@ -18,7 +20,18 @@ import json
 
 
 class Trainer:
-    def __init__(self, model, trainLoader, testLoader, save_path, model_name, plot_path='.', device=None):
+    def __init__(
+        self,
+        model,
+        trainLoader,
+        testLoader,
+        save_path,
+        model_name,
+        plot_path='.',
+        device=None,
+        wandb_run: wandb.wandb_run.Run =None,
+    ):
+        self.wandb_run = wandb_run
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model_name = model_name
         device_id = self.device.index
@@ -33,6 +46,8 @@ class Trainer:
         
         num_params = sum(p.numel() for p in model.parameters())
         self.printer.print(f"{self.model_name}: Model has {num_params:,} parameters")
+        self.wandb_run.config.update({"params": num_params})
+        self.wandb_run.config.update({"device": str(self.device)})
         
         
         self.best_model_file_path = None
@@ -47,7 +62,6 @@ class Trainer:
         self.model.to(self.device)
         self.wandb_dir = os.path.join(self.save_path, 'wandb')
         os.makedirs(self.wandb_dir, exist_ok=True)
-        self.profile_dir = os.path.join(self.wandb_dir, 'profile')
 
         self.use_early_stopping = False
         self.patience = 10
@@ -74,43 +88,6 @@ class Trainer:
 
     def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None, common_loss_fn=None):
         self.printer.print(f"{self.model_name}: Training for {num_epochs} epochs with learning rate {learningRate}")
-        
-        model_params = sum(p.numel() for p in self.model.parameters())
-        self.wandb_run = wandb.init(
-            project="NextNet",
-            name=self.model_name,
-            id = self.model_name,
-            notes = f"Params: {model_params:,}",
-            resume="allow",
-            #sync_tensorboard=True,
-            dir=self.wandb_dir,
-            config={
-                "model_name": self.model_name,
-                "learning_rate": learningRate,
-                "batch_size": self.trainLoader.batch_size,
-                "num_epochs": 50,
-                "optimizer": optimizer.__class__.__name__,
-                "loss_function": criterion.__class__.__name__,
-                "common_loss_function": common_loss_fn.__class__.__name__,
-                "hidden_size": cfg.HIDDEN_SIZE,
-                "num_heads": cfg.NUM_HEADS,
-                "sequence_length": cfg.SEQUENCE_LENGTH,
-                "prediction_length": cfg.PREDICTION_LENGTH,
-                "dropout_rate": cfg.DROPOUT_RATE,
-                "weight_decay": cfg.WEIGHT_DECAY,
-                "Train Batch Size": cfg.BATCH_SIZE,
-                "Test Batch Size": cfg.TEST_BATCH_SIZE,
-            }
-        )
-        
-
-        self.wandb_run.define_metric("train/loss", summary="min", )
-        self.wandb_run.define_metric("val/loss", summary="min", )
-        self.wandb_run.define_metric("train/common_loss", summary="min", )
-        self.wandb_run.define_metric("train/common_loss", summary="min", )
-        self.wandb_run.define_metric("epoch_time", summary="avg", )
-        self.wandb_run.define_metric("train/avg_batch_time", summary="avg")
-        self.wandb_run.define_metric("val/avg_batch_time", summary="avg")
 
         if optimizer is None:
             optimizer = optim.Adam(self.model.parameters(), lr=learningRate)

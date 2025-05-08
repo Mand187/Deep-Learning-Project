@@ -1,4 +1,5 @@
 import config as cfg
+import wandb
 import traceback
 import os
 import multiprocessing as mp
@@ -63,6 +64,23 @@ class TaskTuple:
             self.gpu_id,
             self.optimizer_kwargs
         )
+    def __dict__(self):
+        return {
+            'model_name': self.model_name,
+            'train_loader': self.train_loader,
+            'test_loader': self.test_loader,
+            'prediction_length': self.prediction_length,
+            'num_ids': self.num_ids,
+            'sequence_length': self.sequence_length,
+            'save_model_dir': self.save_model_dir,
+            'model_kwargs': self.model_kwargs.__dict__(),
+            'loss_fn': self.loss_fn.__class__.__name__,
+            'common_loss_fn': self.common_loss_fn.__class__.__name__,
+            'learning_rate': self.learning_rate,
+            'num_epochs': self.num_epochs,
+            'gpu_id': self.gpu_id,
+            'optimizer_kwargs': self.optimizer_kwargs.__dict__(),
+        }
 
 
 def train_model(
@@ -79,7 +97,8 @@ def train_model(
     learning_rate,
     num_epochs,
     gpu_id,
-    optimizer_kwargs
+    optimizer_kwargs,
+    wandb_run
 ):
     try:
         
@@ -145,7 +164,8 @@ def train_model(
             test_prefetcher,
             save_path=save_model_dir, # Pass the directory for saving models
             model_name=model_name,    # Pass the base model name
-            device=device
+            device=device,
+            wandb_run=wandb_run,
         )
         printer.print(f"[{model_name} GPU:{gpu_id}] Trainer initialized. Device: {trainScript.device}", Colors.GREEN)
 
@@ -174,6 +194,28 @@ def train_model(
         # For now, re-raising will make it appear in the callback if it's an Exception.
         raise # Re-raise the exception to be caught by the pool's error handling / callback
 
+def create_wandb_run(
+    config: dict,
+):
+    wandb_dir = os.path.join(config['save_model_dir'], 'wandb')
+    os.makedirs(wandb_dir, exist_ok=True)
+    wandb_run = wandb.init(
+        project="NextNet",
+        name=config['model_name'],
+        id = config['model_name'],
+        resume="allow",
+        #sync_tensorboard=True,
+        dir=wandb_dir,
+        config=config
+    )
+    wandb_run.define_metric("train/loss", summary="min", )
+    wandb_run.define_metric("val/loss", summary="min", )
+    wandb_run.define_metric("train/common_loss", summary="min", )
+    wandb_run.define_metric("train/common_loss", summary="min", )
+    wandb_run.define_metric("epoch_time", summary="avg", )
+    wandb_run.define_metric("train/avg_batch_time", summary="avg")
+    wandb_run.define_metric("val/avg_batch_time", summary="avg")
+    return wandb_run
 
 def main():
     wandb_login()
