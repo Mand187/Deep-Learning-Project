@@ -159,10 +159,9 @@ class Trainer:
 
 
         
-        self.save_model(epoch)
+        self.pool.shutdown(wait=True)
         self.plot_losses()
         
-        self.pool.shutdown(wait=True)
         
         return self.train_losses, self.val_losses, self.epoch_times
 
@@ -172,6 +171,7 @@ class Trainer:
         """Save the model to a file"""
         self.best_model_file_path = os.path.join(self.model_pickle_dir, f"{self.model_name}.pth")
         #self.printer.print(f"{self.model_name}: Saving model to {self.best_model_file_path}")
+        self.save_history()
         self.pool.submit(
             torch.save,
             self.model,
@@ -179,7 +179,6 @@ class Trainer:
             *args,
             **kwargs
         )
-        self.pool.submit(self.save_history)
     
     def save_history(self):
         history = {
@@ -190,7 +189,7 @@ class Trainer:
         }
         
         with open(self.history_file_path, 'w') as f:
-            json.dump(history, f)
+            json.dump(history, f, indent=4)
         
     def plot_losses(self):
         plot_filepath = os.path.join(self.plot_path, f"{self.model_name}_losses.png")

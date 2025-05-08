@@ -9,6 +9,8 @@ from torchtnt.utils.data import CudaDataPrefetcher
 
 from config import *
 
+# 687,223,758 parameters
+
 def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
     """Load and preprocess CSV data from folder"""
     # Path to the Preprocessed_CSVs folder
@@ -83,6 +85,7 @@ def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
 
 def create_tensor_from_dataframe(df, transformer_max_ids_per_frame): # Keep arg for compatibility if needed elsewhere
     """Create a tensor from dataframe for model input"""
+    #! This is the slow function
     # Group by frame and create sequences
     frames_grouped = df.groupby('Frame')
 
@@ -136,10 +139,10 @@ def create_sequences(all_data_tensor, sequence_offset = 1, sequence_length=SEQUE
     X = []
     Y = []
     
-    for csv_idx in range(all_data_tensor.shape[0]):
+    for csv_idx in range(all_data_tensor.shape[0]): # Iterate over CSVs
         csv_data = all_data_tensor[csv_idx]  # [Sequence, ID, Features]
         
-        for i in range(0, len(csv_data) - sequence_length - prediction_length + 1, sequence_offset):
+        for i in range(0, len(csv_data) - sequence_length - prediction_length + 1, sequence_offset): # Iterate over rows of CSV
             # Input sequence (SEQUENCE_LENGTH frames)
             x_seq = csv_data[i:i+sequence_length]
             # Target sequence (next PREDICTION_LENGTH frames) - Only include X and Y features (indices 1 and 2)
