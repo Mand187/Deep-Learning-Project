@@ -8,12 +8,6 @@ import concurrent.futures
 from Training.jutils import Colors, ColorPrinter
 
 
-try:
-    from tqdm.notebook import tqdm
-except ImportError:
-    from tqdm import tqdm
-
-
 
 class Trainer:
     def __init__(self, model, trainLoader, testLoader, save_path, model_name, plot_path='.', device=None):
@@ -86,10 +80,9 @@ class Trainer:
         epoch_times = []
 
         total_start_time = time.time()
-        pbar = tqdm(range(1, num_epochs + 1), desc=f"{self.model_name} Training Progress")
 
 
-        for epoch in pbar:
+        for epoch in range(1, num_epochs + 1):
             epoch_start = time.time()
             running_loss = 0.0  # Initialize for the current epoch
             val_loss = 0.0      # Initialize for the current epoch
@@ -97,13 +90,7 @@ class Trainer:
             # --- Training ---
             self.model.train()
 
-            train_iterator = tqdm(
-                self.trainLoader,
-                desc=f" {self.model_name} Epoch {epoch}/{num_epochs} [Train]",
-                leave=False
-            )
-
-            for inputs, targets in train_iterator:
+            for inputs, targets in self.trainLoader:
                 inputs, targets = inputs.to(self.device), targets.to(self.device)
 
                 optimizer.zero_grad()
@@ -119,8 +106,6 @@ class Trainer:
 
                 running_loss += loss.item()
 
-                train_iterator.set_postfix({"batch loss": f"{loss.item():.4f}"})
-
             train_loss = running_loss / len(self.trainLoader.data_iterable)
             self.train_losses.append(train_loss)
 
@@ -128,14 +113,8 @@ class Trainer:
             self.model.eval()
             
 
-            val_iterator = tqdm(
-                self.testLoader,
-                desc=f"{self.model_name} Epoch {epoch}/{num_epochs} [Val]",
-                leave=False
-            )
-
             with torch.no_grad():
-                for inputs, targets in val_iterator:
+                for inputs, targets in self.testLoader:
                     inputs, targets = inputs.to(self.device), targets.to(self.device)
 
                     outputs = self.model(inputs)
@@ -144,7 +123,6 @@ class Trainer:
                     val_loss += loss.item()
 
 
-                    val_iterator.set_postfix({"batch loss": f"{loss.item():.4f}"})
 
             val_loss /= len(self.testLoader.data_iterable)
 
@@ -155,11 +133,7 @@ class Trainer:
             epoch_times.append(epoch_time)
 
             # Update main progress bar
-            pbar.set_postfix({
-                "Train Loss": f"{train_loss:.4f}",
-                "Val Loss": f"{val_loss:.4f}",
-                "Time": f"{epoch_time:.2f}s"
-            })
+            self.printer.print(f"\r{self.model_name}: Epoch {epoch}/{num_epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f} - Time: {epoch_time:.2f}s")
 
             # --- Early Stopping ---
             if self.use_early_stopping:
