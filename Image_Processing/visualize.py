@@ -116,8 +116,8 @@ def generate_video_from_predictions(
                             pt1 = (int(row['X_pred']), int(row['Y_pred'])), 
                             pt2 = (int(future_row.iloc[0]['X_pred']), int(future_row.iloc[0]['Y_pred'])), 
                             color = pred_color,
-                            thickness = 2,
-                            tipLength=0.1
+                            thickness = 3,
+                            tipLength=0.3
                         )
                         # Draw true trajectory
                         cv2.arrowedLine(

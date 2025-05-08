@@ -23,7 +23,7 @@ def generate_predictions_csv(
     output_csv_name,
     device=None,
 ):
-    model_file = os.path.join(model_dir, model_name, f'{model_name}_epoch_50.pth')
+    model_file = os.path.join(model_dir, model_name, 'pickles', f'{model_name}.pth')
     assert_file(model_file)
     assert_dir(csv_folder)
     assert_file(video_file)
@@ -33,20 +33,25 @@ def generate_predictions_csv(
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-    model = torch.load(model_file, map_location=device, weights_only=False)
+    model: FrameTransformer = torch.load(model_file, map_location=device, weights_only=False)
+    #frame attention = hidden_size * num_ids
+    #id attention = hidden_size * sequence_length
+    num_ids = int(model.frame_attention.embed_dim / (model.id_attention.embed_dim / cfg.SEQUENCE_LENGTH))
+    printer.print(f"Num IDs: {num_ids}", Colors.YELLOW)
+    model.frame_attention.embed_dim
     model.eval()
     headers = ['Frame', 'ID', 'X_pred', 'Y_pred', 'X_true', 'Y_true']
     print(f"Exporting predictions to {output_csv_path}...")
     
-    df, num_ids = load_and_preprocess_data(csv_folder)
+    df, _ = load_and_preprocess_data(csv_folder)
     all_tensors, _ = create_tensor_from_dataframe(df, 20)
     X, Y = create_sequences(all_tensors, prediction_length=30)
     
     # append zeros to ensure X has shape 100, 20, 4
     print(f"X shape: {X.shape}")
     print(f"Y shape: {Y.shape}")
-    x_padding = torch.full((X.shape[0], X.shape[1], 20-X.shape[2], X.shape[3]), -1)
-    y_padding = torch.full((Y.shape[0], Y.shape[1], 20-Y.shape[2], Y.shape[3]), -1)
+    x_padding = torch.full((X.shape[0], X.shape[1], num_ids-X.shape[2], X.shape[3]), -1)
+    y_padding = torch.full((Y.shape[0], Y.shape[1], num_ids-Y.shape[2], Y.shape[3]), -1)
     X = torch.cat((X, x_padding), dim=2)
     Y = torch.cat((Y, y_padding), dim=2)
     print(f"X shape after padding: {X.shape}")
@@ -138,6 +143,6 @@ if __name__ == '__main__':
         video_path='Image_Processing/visualization/merge.mp4',
         prediction_path=csv_path,
         output_path='Model/Saved_Model/rmse_model_1s_merge_predictions.mp4',
-        IDs_To_Visualize=[9, 11],
+        IDs_To_Visualize=list(range(0, 20)),
         frame_offset=5
     )
