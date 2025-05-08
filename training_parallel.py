@@ -184,7 +184,7 @@ def main():
             },
             loss_fn=ADELoss(),
             learning_rate=cfg.LEARNING_RATE,
-            num_epochs=2,
+            num_epochs=50,
             optimizer_kwargs={}
         ),
         TaskTuple(
@@ -202,7 +202,25 @@ def main():
             },
             loss_fn=FDELoss(),
             learning_rate=cfg.LEARNING_RATE,
-            num_epochs=2,
+            num_epochs=50,
+            optimizer_kwargs={}
+        ),
+        TaskTuple(
+            model_name='rmse_model_1s',
+            train_loader=train_loader,
+            test_loader=test_loader,
+            prediction_length=cfg.PREDICTION_LENGTH,
+            num_ids=transformer_max_ids_per_frame,
+            sequence_length=X.size(1),
+            save_model_dir=os.path.join(root_dir, 'Model', 'Saved_Model'),
+            model_kwargs={
+                'hidden_size': cfg.HIDDEN_SIZE,
+                'num_heads': cfg.NUM_HEADS,
+                'dropout_rate': cfg.DROPOUT_RATE
+            },
+            loss_fn=RMSELoss(),
+            learning_rate=cfg.LEARNING_RATE,
+            num_epochs=50,
             optimizer_kwargs={}
         ),
     ]
