@@ -148,7 +148,9 @@ class PaddedMSELoss(nn.Module):
         """
         Calculate the Mean Squared Error (MSE) loss, ignoring padded values.
         
-        predictions.shape: [batch_size, prediction_length, num_ids, 2]
+        predictions & targets.shape: [batch_size, prediction_length, num_ids, 2]
+        
+        return.shape: 1
         """
         
         # Check if predictions and targets have the same shape
@@ -160,6 +162,4 @@ class PaddedMSELoss(nn.Module):
         mask = (targets != PADDING_TOKEN).float()
         
         # Calculate MSE for non-padded values
-        mse = self.mse(predictions, targets) * mask
-        mse = mse.sum(dim=-1)  # Sum over the last dimension (x,y coordinates)
-        mse = mse.sum(dim=1)
+        return self.mse(predictions, targets) * mask
