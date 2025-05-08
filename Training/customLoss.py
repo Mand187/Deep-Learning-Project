@@ -143,6 +143,7 @@ class PaddedMSELoss(nn.Module):
         super().__init__()
         self.reduction = reduction
         self.mse = nn.MSELoss(reduction=self.reduction)
+        
     def forward(self, predictions, targets):
         """
         Calculate the Mean Squared Error (MSE) loss, ignoring padded values.
@@ -162,10 +163,3 @@ class PaddedMSELoss(nn.Module):
         mse = self.mse(predictions, targets) * mask
         mse = mse.sum(dim=-1)  # Sum over the last dimension (x,y coordinates)
         mse = mse.sum(dim=1)
-
-        if self.reduction == 'mean':
-            return mse.mean()
-        elif self.reduction == 'sum':
-            return mse.sum()
-        else:  # 'none'
-            return mse
