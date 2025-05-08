@@ -497,6 +497,7 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
             print(f"↑↑↑↑↑↑↑↑↑↑↑↑↑ NEW BEST MODEL ↑↑↑↑↑↑↑↑↑↑↑↑↑")
             
         if SAVE_CHECKPOINTS and newBestModel: 
+            os.makedirs('Saved_Models', exist_ok=True)
             torch.save(model.state_dict(), 'Saved_Models/best_model.pth')
             print(f"↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ SAVED ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑")
         
