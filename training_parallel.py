@@ -389,10 +389,10 @@ def main():
                     # The detailed traceback should have been printed by the child process thanks to the try-except in train_model.
                 else:
                     printer.print(f"CALLBACK: Training for {name} completed on GPU {gpu}. Result: {type(result_or_exc)}", Colors.GREEN)
-
+            wandb_run = create_wandb_run(config=task.__dict__())
             res = pool.apply_async(
                 train_model,
-                args=task.get_tuple(),  # Unpack the tuple to pass as arguments
+                args=(*task.get_tuple(), wandb_run),  # Unpack the tuple to pass as arguments
                 callback=lambda r, name=model_name_for_callback, gpu=gpu_id_for_task: callback_fn(r, name, gpu)
             )
             results_async.append(res)
