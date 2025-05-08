@@ -179,6 +179,8 @@ class PaddedMSELoss(nn.Module):
         
         # Create a mask for non-padded values
         mask = (targets != PADDING_TOKEN).float()
+        predictions = predictions * mask
+        targets = targets * mask
         
         # Calculate MSE for non-padded values
         return self.mse(predictions, targets) * mask
