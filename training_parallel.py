@@ -77,10 +77,38 @@ def train_model(
     gpu_id,
     optimizer_kwargs
 ):
-    # print("Process pool created with 1 processes.") # Removed misleading print
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    device = torch.device('cuda:0')
-    printer.print(f"[{model_name} GPU:{gpu_id}] Using device: {device}", Colors.CYAN)
+    try:
+        # Explicitly initialize CUDA for this process
+        # This might help with NVML issues in spawned processes
+        if torch.cuda.is_available():
+            torch.cuda.init() # Initialize CUDA context for the current process
+            printer.print(f"[{model_name} GPU:{gpu_id}] CUDA initialized for process.", Colors.BLUE)
+        else:
+            printer.print(f"[{model_name} GPU:{gpu_id}] CUDA not available for process.", Colors.YELLOW)
+            # Depending on requirements, you might want to raise an error or proceed on CPU if possible
+
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        # After setting CUDA_VISIBLE_DEVICES, the device index for PyTorch will be 0 
+        # if gpu_id was, for example, 2, but it's the only one visible to this process.
+        # So, we should use cuda:0 if a GPU is indeed visible and intended.
+        # However, let's first confirm if CUDA is available after init.
+        if torch.cuda.is_available(): # Check again after potential init and env var setting
+            # device = torch.device(f'cuda:0') # Assuming CUDA_VISIBLE_DEVICES makes this the '0th' visible GPU
+            # Let PyTorch pick the current device if CUDA_VISIBLE_DEVICES is set to a single ID
+            # Or, if CUDA_VISIBLE_DEVICES is a list, and gpu_id is an index into that original list,
+            # this needs careful handling. For now, let's assume gpu_id is the one to use.
+            # The safest is to let PyTorch determine based on CUDA_VISIBLE_DEVICES.
+            # If CUDA_VISIBLE_DEVICES is set to a single GPU ID, say "2", then cuda:0 in this process refers to GPU 2.
+            device = torch.device('cuda:0') 
+        else:
+            device = torch.device('cpu') # Fallback to CPU if CUDA isn't usable
+        
+        printer.print(f"[{model_name} GPU:{gpu_id}] Using device: {device}", Colors.CYAN)
+    except Exception as e:
+        printer.print(f"ERROR during initial setup in train_model for {model_name} on GPU {gpu_id}: {type(e).__name__}: {e}", Colors.RED)
+        error_traceback = traceback.format_exc()
+        printer.print(error_traceback, Colors.RED)
+        raise
     
     try:
         train_prefetcher = CudaDataPrefetcher(
@@ -128,7 +156,7 @@ def train_model(
         
         return model # Or more detailed results if needed
     except Exception as e:
-        printer.print(f"ERROR in train_model for {model_name} on GPU {gpu_id}: {type(e).__name__}: {e}", Colors.RED)
+        printer.print(f"ERROR in train_model for {model_name} on GPU {gpu_id}: {type(e).__name__}: {e}", Colors.ORANGE)
         # traceback.print_exc() # This prints to stderr of the child process
         error_traceback = traceback.format_exc()
         printer.print(error_traceback, Colors.RED)
@@ -223,6 +251,24 @@ def main():
             num_epochs=50,
             optimizer_kwargs={}
         ),
+        TaskTuple(
+            model_name='mse_model_1s',
+            train_loader=train_loader,
+            test_loader=test_loader,
+            prediction_length=cfg.PREDICTION_LENGTH,
+            num_ids=transformer_max_ids_per_frame,
+            sequence_length=X.size(1),
+            save_model_dir=os.path.join(root_dir, 'Model', 'Saved_Model'),
+            model_kwargs={
+                'hidden_size': cfg.HIDDEN_SIZE,
+                'num_heads': cfg.NUM_HEADS,
+                'dropout_rate': cfg.DROPOUT_RATE
+            },
+            loss_fn=PaddedMSELoss(),
+            learning_rate=cfg.LEARNING_RATE,
+            num_epochs=50,
+            optimizer_kwargs={}
+        ),
     ]
     print("Data directory: ", data_dir)
     print("CSV directory: ", csv_dir)
@@ -298,7 +344,7 @@ def main():
                 printer.print(f"Task {tasks[i].model_name} (GPU {tasks[i].gpu_id}) final result retrieved successfully.", Colors.CYAN)
             except Exception as e:
                 # This catches exceptions that occurred in the train_model function and were propagated by apply_async
-                printer.print(f"MAIN PROCESS EXCEPTION for task {tasks[i].model_name} (GPU {tasks[i].gpu_id}) on .get(): {type(e).__name__}: {e}", Colors.RED)
+                printer.print(f"MAIN PROCESS EXCEPTION for task {tasks[i].model_name} (GPU {tasks[i].gpu_id}) on .get(): {type(e).__name__}: {e}", Colors.YELLOW)
                 error_traceback = traceback.format_exc()
                 printer.print(error_traceback, Colors.RED)
                 # If the error_traceback was part of the exception object (it usually isn't directly),

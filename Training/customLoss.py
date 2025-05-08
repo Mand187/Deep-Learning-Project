@@ -63,6 +63,7 @@ class ADELoss(nn.Module):
         # Count the number of valid (non-padded) time steps for each sample.
         num_valid_timesteps_per_sample = valid_mask.sum(dim=1).float() # [batch_size, num_ids]
         
+        
         # Calculate ADE for each sample.
         # If num_valid_timesteps_per_sample is 0 for a sample, ade_per_sample for that sample will be 0.
         # clamp(min=1.0) prevents division by zero, resulting in 0.0 / 1.0 = 0.0 for fully padded sequences.
@@ -134,9 +135,10 @@ class FDELoss(nn.Module):
             return fde_per_sample
 
 class RMSELoss(nn.Module):
-    def __init__(self, reduction='mean'):
+    def __init__(self, reduction='mean', eps=1e-6):
         super().__init__()
         self.mse_loss = PaddedMSELoss(reduction=reduction)
+        self.eps = eps
         
     def forward(self, predictions, targets):
         """
@@ -149,7 +151,8 @@ class RMSELoss(nn.Module):
         
         # Compute MSE loss and take the square root
         mse = self.mse_loss(predictions, targets)
-        return torch.sqrt(mse)
+        # Add epsilon for numerical stability before sqrt
+        return torch.sqrt(mse + self.eps)
         
 class PaddedMSELoss(nn.Module):
     def __init__(self, reduction='mean'):
@@ -172,9 +175,27 @@ class PaddedMSELoss(nn.Module):
             raise ValueError("Predictions and targets must have the same shape.")
         
         # Create a mask for non-padded values
-        mask = (targets != PADDING_TOKEN).float()
-        predictions = predictions * mask
-        targets = targets * mask
+        mask = (targets != PADDING_TOKEN).all(dim=-1, keepdim=True).float() # Ensure mask is broadcastable
         
-        # Calculate MSE for non-padded values
-        return self.mse(predictions, targets) * mask
+        # Calculate element-wise squared error
+        squared_error = (predictions - targets)**2
+        
+        # Apply mask to the squared error
+        masked_squared_error = squared_error * mask
+        
+        if self.reduction == 'mean':
+            # Sum masked errors and divide by the count of non-padded elements
+            # The number of elements to average over is the sum of the mask (where mask is 1 for valid, 0 for padded)
+            # We need to sum over all dimensions of the mask that correspond to the error tensor.
+            # Since squared_error is [B, P, N, F], and mask is [B, P, N, 1] (after keepdim=True),
+            # the number of valid elements is mask.sum().
+            # Ensure we don't divide by zero if all elements are padded.
+            num_valid_elements = mask.sum().clamp(min=1.0)
+            return masked_squared_error.sum() / num_valid_elements
+        elif self.reduction == 'sum':
+            return masked_squared_error.sum()
+        else: # 'none'
+            # If reduction is 'none', we should return the masked squared error per element.
+            # However, nn.MSELoss(reduction='none') would return element-wise SE.
+            # To be consistent, if the user wants 'none', they likely expect the masked SE.
+            return masked_squared_error

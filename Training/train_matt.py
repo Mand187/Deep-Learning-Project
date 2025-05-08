@@ -93,6 +93,11 @@ class Trainer:
                 optimizer.zero_grad()
                 outputs = self.model(inputs)
                 loss = criterion(outputs, targets)
+
+                # Ensure loss is a scalar
+                if loss.ndim > 0: # If loss is not a scalar
+                    loss = loss.mean() # Reduce to scalar by taking the mean
+
                 loss.backward()
                 optimizer.step()
 
@@ -179,14 +184,14 @@ class Trainer:
         """Save the model to a file"""
         self.best_model_file_path = os.path.join(self.model_path, f"{self.model_name}_epoch_{epoch}.pth")
         print(f"Saving model to {self.best_model_file_path}")
-        # self.pool.submit(
-        #     torch.save,
-        #     self.model,
-        #     self.best_model_file_path,
-        #     *args,
-        #     **kwargs
-        # )
-        torch.save(self.model, self.best_model_file_path)
+        self.pool.submit(
+            torch.save,
+            self.model,
+            self.best_model_file_path,
+            *args,
+            **kwargs
+        )
+        #torch.save(self.model, self.best_model_file_path)
     def plot_losses(self):
         plot_filepath = os.path.join(self.plot_path, f"{self.model_name}_losses.png")
         print(f"Plotting losses to {plot_filepath}")

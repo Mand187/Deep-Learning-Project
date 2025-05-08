@@ -73,7 +73,14 @@ if retrain_model:
         num_heads=cfg.NUM_HEADS,
         dropout_rate=cfg.DROPOUT_RATE
     )
-    trainScript = Trainer(model, train_prefetcher, test_prefetcher, model_name=model_name[:-4], model_path=model_file_path, device=cfg.DEVICE)  # Load the model from the specified path
+    trainScript = Trainer(
+        model,
+        train_prefetcher,
+        test_prefetcher,
+        model_name=model_name[:-4],
+        save_path=save_model_dir,
+        device=cfg.DEVICE
+    )  # Load the model from the specified path
 
     trainScript.earlyStop(enable=True, patience=30, delta=0.01)
     train_losses1, val_losses1, train_accs1, val_accs1, epoch_times1 = trainScript.train(
@@ -101,5 +108,3 @@ test_model(
     criterion,
     device=cfg.DEVICE
 )
-
-Trainer
