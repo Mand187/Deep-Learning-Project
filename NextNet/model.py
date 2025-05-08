@@ -97,15 +97,18 @@ TRANSFORMER_MAX_IDS_PER_FRAME:int = int(frame_id_counts.max())
 
 # Initialize MinMaxScaler for each coordinate column
 misc_feature_scaler = MinMaxScaler(feature_range=(0, 5))
-xy_scaler = MinMaxScaler(feature_range=(0, 5))
+x_scaler = MinMaxScaler(feature_range=(0, 16))
+y_scaler = MinMaxScaler(feature_range=(0, 9))
 
 # Columns to normalize
 misc_fields_to_normalize = ['Height', 'Width']
-xy_fields_to_normalize = ['X', 'Y']
+x_field_to_normalize = ['X']
+y_field_to_normalize = ['Y']
 
 # Normalize each coordinate column between 0 and 1
 df[misc_fields_to_normalize] = misc_feature_scaler.fit_transform(df[misc_fields_to_normalize])
-df[xy_fields_to_normalize] = xy_scaler.fit_transform(df[xy_fields_to_normalize])
+df[x_field_to_normalize] = x_scaler.fit_transform(df[x_field_to_normalize])
+df[y_field_to_normalize] = y_scaler.fit_transform(df[y_field_to_normalize])
 
 # Normalize Frame field separately since we need to preserve original mapping
 frame_scaler = MinMaxScaler(feature_range=(0, 5))
@@ -178,7 +181,7 @@ print(f"All data tensor shape: {all_data_tensor.shape}")
 # ================================ Create Sequences and Dataloader ======================================
 # Create sequences of frames and their corresponding next n frames, ensuring no cross-CSV sequences
 SEQUENCE_LENGTH:int = 100  # Number of frames in input sequence     100
-PREDICTION_LENGTH:int = 30  # Number of future frames to predict   30
+PREDICTION_LENGTH:int = 150  # Number of future frames to predict   30
 
 X = []
 Y = []
@@ -409,7 +412,7 @@ Optimizer_Function:torch.optim.Adam = torch.optim.Adam(
     weight_decay=1e-5
 )
 
-EPOCHS:int = 50
+EPOCHS:int = 25
 
 MAXIMUM_TEST_LOSS:int = 0 # maximum loss threshold before saving can occur
 SAVE_CHECKPOINTS:bool = False
@@ -427,8 +430,6 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
     model.train()
     totalTrainLossInEpoch:float = 0
     for i, (X_train_batch, Y_train_batch) in enumerate(train_prefetcher):
-        if i % 50 == 0:
-            print(f"\rTRAIN LOOP \t| Processing Batch {i+1}/{num_train_batches}", end='', flush=True)
         X_train_batch:torch.Tensor = X_train_batch.to(DEVICE, non_blocking=True)
         Y_train_batch:torch.Tensor = Y_train_batch.to(DEVICE, non_blocking=True)
         
@@ -442,6 +443,9 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
         
         totalTrainLossInEpoch += trainBatchLoss
         
+        if i % 50 == 0:
+            print(f"\rTRAIN LOOP \t| Processed Batch {i+1}/{num_train_batches} \t| Batch Loss: {trainBatchLoss:.5f}", end='', flush=True)
+        
     
     model.eval()
     
@@ -451,8 +455,6 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
         
         totalTestLossInEpoch:float = 0
         for i, (X_test_batch, Y_test_batch) in enumerate(test_prefetcher):
-            if i % 50 == 0:
-                print(f"\rTEST LOOP \t| Processing Batch {i+1}/{num_test_batches}", end='', flush=True)
             X_test_batch:torch.Tensor = X_test_batch.to(DEVICE, non_blocking=True)
             Y_test_batch:torch.Tensor = Y_test_batch.to(DEVICE, non_blocking=True)
         
@@ -461,14 +463,17 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
             testBatchLoss = Loss_Function(Y_test_pred_logits, Y_test_batch)
     
             totalTestLossInEpoch += testBatchLoss
+            
+            if i % 50 == 0:
+                print(f"\rTEST LOOP \t| Processed Batch {i+1}/{num_test_batches} \t| Batch Loss: {testBatchLoss:.5f}", end='', flush=True)
         
         testEpochAverageBatchLoss:float = totalTestLossInEpoch/num_test_batches
         avgTestBatchLossPerEpoch += [testEpochAverageBatchLoss]
         
         epochTime:float = time.time() - epochStartTime
         estRemainingTime:float = (EPOCHS - epochIterator - 1)*epochTime / 60
-        
-        print(f"\repoch: {epochIterator} \t| train loss: {trainEpochAverageBatchLoss:.5f} \t| test loss: {testEpochAverageBatchLoss:.5f} \t| TTG: {int(estRemainingTime):02}:{int((estRemainingTime - int(estRemainingTime))*60):02}", end='', flush=True)
+        print("", end="", flush=True)
+        print(f"\nepoch: {epochIterator} \t| train loss: {trainEpochAverageBatchLoss:.5f} \t| test loss: {testEpochAverageBatchLoss:.5f} \t| TTG: {int(estRemainingTime):02}:{int((estRemainingTime - int(estRemainingTime))*60):02}")
         
         newBestModel:bool = testEpochAverageBatchLoss < MAXIMUM_TEST_LOSS and testEpochAverageBatchLoss < bestTestLoss or bestTestLoss == -1
         if newBestModel: 
