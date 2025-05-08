@@ -1,4 +1,5 @@
 import time
+import csv
 import torch
 import matplotlib.pyplot as plt
 import torch.nn as nn
@@ -137,7 +138,7 @@ class Trainer:
                 if val_loss < best_val_loss - self.delta:
                     best_val_loss = val_loss
                     patience_counter = 0
-                    self.save_model(epoch)
+                    self.save_model()
                     self.printer.print(f"{self.model_name}: Best Loss at epoch {epoch}: {best_val_loss:.4f}")
                 else:
                     patience_counter += 1
@@ -167,9 +168,9 @@ class Trainer:
 
 
 
-    def save_model(self, epoch, *args, **kwargs):
+    def save_model(self, *args, **kwargs):
         """Save the model to a file"""
-        self.best_model_file_path = os.path.join(self.model_pickle_dir, f"{self.model_name}_epoch_{epoch}.pth")
+        self.best_model_file_path = os.path.join(self.model_pickle_dir, f"{self.model_name}.pth")
         #self.printer.print(f"{self.model_name}: Saving model to {self.best_model_file_path}")
         self.pool.submit(
             torch.save,
@@ -232,66 +233,3 @@ class Trainer:
         total_loss = total_losses / len(self.testLoader.data_iterable)
         self.printer.print(f"{self.model_name}: Test Losses: {total_loss}")
         return total_loss
-
-    # def predict_130_frames(self, X, Y, detections_csv_path, output_csv_path):
-    #     if self.best_model_file_path is not None:
-    #         del self.model
-    #         self.model = torch.load(self.best_model_file_path).to(self.device)
-    #     self.model.eval()
-    #     headers = ['Frame', 'ID', 'X_pred', 'Y_pred', 'X_true', 'Y_true']
-    #     print(f"Exporting predictions to {csv_path}...")
-        
-    #     with open(output_csv_path, 'w', newline='') as csvfile:
-    #         csv_writer = csv.writer(csvfile)
-    #         csv_writer.writerow(headers)
-            
-    #         with torch.no_grad():
-    #             # X shape: (100, 18, 5)
-    #             # Y shape: (30, 18, 2)
-                
-    #             # X contains (Seq_idx, ID, Features) 
-    #             #    Features = [Frame, X, Y, Width, Height]
-    #             # Y contains [Seq_idx, ID, X, Y]
-                
-                
-    #             x = X[sequence_idx]
-    #             x_unsqueezed = x.unsqueeze(0).to(device)
-    #             y = Y[sequence_idx]
-    #             y = y.cpu().numpy()
-    #             y_pred = model(x_unsqueezed).squeeze(0).cpu().numpy()
-
-                
-    #             # Write first 100 frames from x only
-    #             # true = pred
-    #             for frame_id, frame in enumerate(x_denorm, start=0):
-    #                 for v_id, v_id_features in enumerate(frame):
-    #                     row = [
-    #                         frame_id,  # Frame
-    #                         v_id,  # ID
-    #                         int(v_id_features[0]),  # X_pred
-    #                         int(v_id_features[1]),  # Y_pred
-    #                         int(v_id_features[0]),  # X_true
-    #                         int(v_id_features[1])   # Y_true
-    #                     ]
-    #                     if np.any(v_id_features < 0):
-    #                         continue
-    #                     csv_writer.writerow(row)
-    #             # Write next 30 frames from y and y_pred
-    #             for seq_idx in range(30):
-    #                 y_frame = y_denorm[seq_idx]
-    #                 y_pred_frame = y_pred_denorm[seq_idx]
-    #                 for y_id, (y_id_features, y_pred_id_features) in enumerate(zip(y_frame, y_pred_frame)):
-    #                     row = [
-    #                         seq_idx + 100,  # Frame
-    #                         y_id,
-    #                         int(y_pred_id_features[0]),  # X_pred
-    #                         int(y_pred_id_features[1]),  # Y_pred
-    #                         int(y_id_features[0]),  # X_true
-    #                         int(y_id_features[1]),   # Y_true
-    #                     ]
-    #                     if np.any(y_id_features < 0):
-    #                         pass
-    #                         continue
-    #                     csv_writer.writerow(row)
-    #     print(f"Finished exporting predictions to {csv_path}")
-

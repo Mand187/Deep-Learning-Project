@@ -1,4 +1,4 @@
-Frame,Confidence,X,Y,Width,Height,ID,ID_Norm
+Frame,Conf,X,Y,Width,Height,ID,ID_Norm
 0,0.90673828125,1836,691,168,117,1,0
 0,0.8896484375,1105,683,171,96,2,1
 0,0.88427734375,828,685,148,83,3,2

@@ -177,15 +177,26 @@ def main():
     root_dir = os.getcwd()  # Use current working directory as root
     data_dir = os.path.join(root_dir, 'Data')
     csv_dir = os.path.join(data_dir, 'csv')
-    csv_file = os.path.join(csv_dir, 'trimmed_IMG_4097_detections.csv')
     num_gpus_to_use = 4  # Number of GPUs to use
     
     printer.print(f"Initializing data loaders...", Colors.CYAN)
     
     df, transformer_max_ids_per_frame, = load_and_preprocess_data(csv_folder=csv_dir)
     all_data_tensor, num_features = create_tensor_from_dataframe(df, transformer_max_ids_per_frame)
-    X, Y = create_sequences(all_data_tensor, prediction_length=cfg.PREDICTION_LENGTH)
-    train_loader, test_loader = create_dataloaders(X, Y, num_features=num_features)
+
+    
+    
+    
+    X_1s, Y_1s = create_sequences(all_data_tensor, prediction_length=30 * 1)
+    X_2s, Y_2s = create_sequences(all_data_tensor, prediction_length=30 * 2)
+    X_3s, Y_3s = create_sequences(all_data_tensor, prediction_length=30 * 3)
+    X_4s, Y_4s = create_sequences(all_data_tensor, prediction_length=30 * 4)
+    
+    train_loader_1s, test_loader_1s = create_dataloaders(X_1s, Y_1s, num_features=num_features)
+    train_loader_2s, test_loader_2s = create_dataloaders(X_2s, Y_2s, num_features=num_features)
+    train_loader_3s, test_loader_3s = create_dataloaders(X_3s, Y_3s, num_features=num_features)
+    train_loader_4s, test_loader_4s = create_dataloaders(X_4s, Y_4s, num_features=num_features)
+    
 
     """
     model_name,
@@ -204,50 +215,12 @@ def main():
     """
     tasks = [
         TaskTuple(
-            model_name='ade_model_1s',
-            train_loader=train_loader,
-            test_loader=test_loader,
-            prediction_length=cfg.PREDICTION_LENGTH,
-            num_ids=transformer_max_ids_per_frame,
-            sequence_length=X.size(1),
-            save_model_dir=os.path.join(root_dir, 'Model', 'Saved_Model'),
-            model_kwargs={
-                'hidden_size': cfg.HIDDEN_SIZE,
-                'num_heads': cfg.NUM_HEADS,
-                'dropout_rate': cfg.DROPOUT_RATE
-            },
-            loss_fn=ADELoss(),
-            common_loss_fn=ADELoss(),
-            learning_rate=cfg.LEARNING_RATE,
-            num_epochs=50,
-            optimizer_kwargs={}
-        ),
-        TaskTuple(
-            model_name='fde_model_1s',
-            train_loader=train_loader,
-            test_loader=test_loader,
-            prediction_length=cfg.PREDICTION_LENGTH,
-            num_ids=transformer_max_ids_per_frame,
-            sequence_length=X.size(1),
-            save_model_dir=os.path.join(root_dir, 'Model', 'Saved_Model'),
-            model_kwargs={
-                'hidden_size': cfg.HIDDEN_SIZE,
-                'num_heads': cfg.NUM_HEADS,
-                'dropout_rate': cfg.DROPOUT_RATE
-            },
-            loss_fn=FDELoss(),
-            common_loss_fn=ADELoss(),
-            learning_rate=cfg.LEARNING_RATE,
-            num_epochs=50,
-            optimizer_kwargs={}
-        ),
-        TaskTuple(
             model_name='rmse_model_1s',
-            train_loader=train_loader,
-            test_loader=test_loader,
-            prediction_length=cfg.PREDICTION_LENGTH,
+            train_loader=train_loader_1s,
+            test_loader=test_loader_1s,
+            prediction_length=30*1,
             num_ids=transformer_max_ids_per_frame,
-            sequence_length=X.size(1),
+            sequence_length=X_1s.size(1),
             save_model_dir=os.path.join(root_dir, 'Model', 'Saved_Model'),
             model_kwargs={
                 'hidden_size': cfg.HIDDEN_SIZE,
@@ -261,28 +234,65 @@ def main():
             optimizer_kwargs={}
         ),
         TaskTuple(
-            model_name='mse_model_1s',
-            train_loader=train_loader,
-            test_loader=test_loader,
-            prediction_length=cfg.PREDICTION_LENGTH,
+            model_name='rmse_model_2s',
+            train_loader=train_loader_2s,
+            test_loader=test_loader_2s,
+            prediction_length=30*2,
             num_ids=transformer_max_ids_per_frame,
-            sequence_length=X.size(1),
+            sequence_length=X_2s.size(1),
             save_model_dir=os.path.join(root_dir, 'Model', 'Saved_Model'),
             model_kwargs={
                 'hidden_size': cfg.HIDDEN_SIZE,
                 'num_heads': cfg.NUM_HEADS,
                 'dropout_rate': cfg.DROPOUT_RATE
             },
-            loss_fn=PaddedMSELoss(),
+            loss_fn=RMSELoss(),
             common_loss_fn=ADELoss(),
             learning_rate=cfg.LEARNING_RATE,
             num_epochs=50,
             optimizer_kwargs={}
         ),
+        TaskTuple(
+            model_name='rmse_model_3s',
+            train_loader=train_loader_3s,
+            test_loader=test_loader_3s,
+            prediction_length=30*3,
+            num_ids=transformer_max_ids_per_frame,
+            sequence_length=X_3s.size(1),
+            save_model_dir=os.path.join(root_dir, 'Model', 'Saved_Model'),
+            model_kwargs={
+                'hidden_size': cfg.HIDDEN_SIZE,
+                'num_heads': cfg.NUM_HEADS,
+                'dropout_rate': cfg.DROPOUT_RATE
+            },
+            loss_fn=RMSELoss(),
+            common_loss_fn=ADELoss(),
+            learning_rate=cfg.LEARNING_RATE,
+            num_epochs=50,
+            optimizer_kwargs={}
+        ),
+        TaskTuple(
+            model_name='rmse_model_4s',
+            train_loader=train_loader_4s,
+            test_loader=test_loader_4s,
+            prediction_length=30*4,
+            num_ids=transformer_max_ids_per_frame,
+            sequence_length=X_4s.size(1),
+            save_model_dir=os.path.join(root_dir, 'Model', 'Saved_Model'),
+            model_kwargs={
+                'hidden_size': cfg.HIDDEN_SIZE,
+                'num_heads': cfg.NUM_HEADS,
+                'dropout_rate': cfg.DROPOUT_RATE
+            },
+            loss_fn=RMSELoss(),
+            common_loss_fn=ADELoss(),
+            learning_rate=cfg.LEARNING_RATE,
+            num_epochs=50,
+            optimizer_kwargs={}
+        )
     ]
     print("Data directory: ", data_dir)
     print("CSV directory: ", csv_dir)
-    print("CSV file: ", csv_file)
     num_gpus_to_use = 4  # Number of GPUs to use
     num_gpus_available = torch.cuda.device_count()
     num_gpus_to_use = min(num_gpus_to_use, num_gpus_available)
