@@ -130,6 +130,7 @@ class Trainer:
             common_loss /= len(self.testLoader.data_iterable)
 
             self.val_losses.append(val_loss)
+            self.common_losses.append(common_loss)
 
             # Calculate epoch time and append to list
             epoch_time = time.time() - epoch_start
