@@ -87,7 +87,8 @@ def train_model(
             printer.print(f"[{model_name} GPU:{gpu_id}] CUDA not available for process.", Colors.YELLOW)
             # Depending on requirements, you might want to raise an error or proceed on CPU if possible
 
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        # os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        
         # After setting CUDA_VISIBLE_DEVICES, the device index for PyTorch will be 0 
         # if gpu_id was, for example, 2, but it's the only one visible to this process.
         # So, we should use cuda:0 if a GPU is indeed visible and intended.
@@ -99,7 +100,7 @@ def train_model(
             # this needs careful handling. For now, let's assume gpu_id is the one to use.
             # The safest is to let PyTorch determine based on CUDA_VISIBLE_DEVICES.
             # If CUDA_VISIBLE_DEVICES is set to a single GPU ID, say "2", then cuda:0 in this process refers to GPU 2.
-            device = torch.device('cuda:0') 
+            device = torch.device(f'cuda:{gpu_id}') 
         else:
             device = torch.device('cpu') # Fallback to CPU if CUDA isn't usable
         

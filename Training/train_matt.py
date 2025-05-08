@@ -5,6 +5,8 @@ import torch.nn as nn
 import torch.optim as optim
 import os
 import concurrent.futures
+from Training.jutils import Colors, ColorPrinter
+
 
 try:
     from tqdm.notebook import tqdm
@@ -15,6 +17,18 @@ except ImportError:
 
 class Trainer:
     def __init__(self, model, trainLoader, testLoader, save_path, model_name, plot_path='.', device=None):
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device_id = self.device.index
+        
+        colors = [
+            Colors.BLUE,
+            Colors.GREEN,
+            Colors.MAGENTA,
+            Colors.ORANGE
+        ]
+        self.printer = ColorPrinter(color=colors[device_id % len(colors)])
+        
+        
         self.best_model_file_path = None
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
         self.model = model
@@ -23,9 +37,11 @@ class Trainer:
         self.model_name = model_name
         self.trainLoader = trainLoader
         self.testLoader = testLoader
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"\nTraining on device: {self.device}")
+        self.printer.print(f"{self.model_name}: \nTraining on device: {self.device}")
         self.model.to(self.device)
+        
+        
+        
 
         self.use_early_stopping = False
         self.patience = 10
@@ -33,7 +49,7 @@ class Trainer:
         
         self.model_path = os.path.join(self.save_path, self.model_name)
         os.makedirs(self.model_path, exist_ok=True)
-        print(f"Model path: {self.model_path}")
+        self.printer.print(f"{self.model_name}: Model path: {self.model_path}")
         self.train_losses = []
         self.val_losses = []
 
@@ -43,7 +59,7 @@ class Trainer:
         self.delta = delta
 
     def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None):
-        print(f"Training {self.model_name} for {num_epochs} epochs with learning rate {learningRate}")
+        self.printer.print(f"{self.model_name}: Training for {num_epochs} epochs with learning rate {learningRate}")
         if criterion is None:
             criterion = nn.MSELoss(reduction='none')
 
@@ -114,7 +130,7 @@ class Trainer:
 
             val_iterator = tqdm(
                 self.testLoader,
-                desc=f"Epoch {epoch}/{num_epochs} [Val]",
+                desc=f"{self.model_name} Epoch {epoch}/{num_epochs} [Val]",
                 leave=False
             )
 
@@ -151,23 +167,23 @@ class Trainer:
                     best_val_loss = val_loss
                     patience_counter = 0
                     self.save_model(epoch)
-                    print(f"Best validation loss so far: {best_val_loss:.4f}")
+                    self.printer.print(f"{self.model_name}: Best Loss at epoch {epoch}: {best_val_loss:.4f}")
                 else:
                     patience_counter += 1
                     if patience_counter >= self.patience:
-                        print(f"\nEarly stopping at epoch {epoch}")
+                        self.printer.print(f"\n{self.model_name}: Early stopping at epoch {epoch}")
                         break
 
         total_time = time.time() - total_start_time
-        print(f"\nTraining complete in {total_time:.2f} seconds, or {total_time / 60:.2f} minutes")
+        self.printer.print(f"\n{self.model_name}: Training complete in {total_time:.2f} seconds, or {total_time / 60:.2f} minutes")
         if epoch < num_epochs:
-            print(f"Training stopped early at epoch {epoch} due to early stopping criteria.")
+            self.printer.print(f"{self.model_name}: Training stopped early at epoch {epoch} due to early stopping criteria.")
         else:
-            print(f"Total epochs run: {epoch}")
-        print(f"Average time per epoch: {(total_time / epoch):.2f} seconds")
-        print(f"Inference time per batch: {(total_time / epoch / len(self.trainLoader.data_iterable)):.2f} seconds")
-        print(f"Final Training Loss: {self.train_losses[-1]:.4f}")
-        print(f"Final Validation Loss: {self.val_losses[-1]:.4f}")
+            self.printer.print(f"{self.model_name}: Total epochs run: {epoch}")
+        self.printer.print(f"{self.model_name}: Average time per epoch: {(total_time / epoch):.2f} seconds")
+        self.printer.print(f"{self.model_name}: Inference time per batch: {(total_time / epoch / len(self.trainLoader.data_iterable)):.2f} seconds")
+        self.printer.print(f"{self.model_name}: Final Training Loss: {self.train_losses[-1]:.4f}")
+        self.printer.print(f"{self.model_name}: Final Validation Loss: {self.val_losses[-1]:.4f}")
 
 
         
@@ -183,7 +199,7 @@ class Trainer:
     def save_model(self, epoch, *args, **kwargs):
         """Save the model to a file"""
         self.best_model_file_path = os.path.join(self.model_path, f"{self.model_name}_epoch_{epoch}.pth")
-        print(f"Saving model to {self.best_model_file_path}")
+        self.printer.print(f"{self.model_name}: Saving model to {self.best_model_file_path}")
         self.pool.submit(
             torch.save,
             self.model,
@@ -194,8 +210,8 @@ class Trainer:
         #torch.save(self.model, self.best_model_file_path)
     def plot_losses(self):
         plot_filepath = os.path.join(self.plot_path, f"{self.model_name}_losses.png")
-        print(f"Plotting losses to {plot_filepath}")
-        print(f"Saving losses to {self.model_name}_losses.png")
+        self.printer.print(f"{self.model_name}: Plotting losses to {plot_filepath}")
+        self.printer.print(f"{self.model_name}: Saving losses to {self.model_name}_losses.png")
         
         plt.figure(figsize=(10, 5))
         plt.plot(self.train_losses, label='Training Loss')
@@ -209,7 +225,7 @@ class Trainer:
         plt.tight_layout()
         plt.savefig(plot_filepath)
         plt.close()
-        print(f"Plot saved to {plot_filepath}")
+        self.printer.print(f"{self.model_name}: Plot saved to {plot_filepath}")
         #plt.close()
     def test_model(self, losses):
         if self.best_model_file_path is not None:
@@ -229,6 +245,6 @@ class Trainer:
 
 
         total_loss = total_losses / len(self.testLoader.data_iterable)
-        print(f"Test Losses: {total_loss}")
+        self.printer.print(f"{self.model_name}: Test Losses: {total_loss}")
         return total_loss
 

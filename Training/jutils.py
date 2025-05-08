@@ -13,6 +13,10 @@ class Colors(Enum):
     WHITE = "\033[37m"
     RESET = "\033[0m"
     ORANGE = "\033[38;5;208m"
+    LIGHT_BLUE = "\033[38;5;39m"
+    LIGHT_GREEN = "\033[38;5;82m"
+    LIGHT_YELLOW = "\033[38;5;226m"
+    LIGHT_RED = "\033[38;5;196m"
 
 def print_color(text: str, color: Colors) -> None:
     """
