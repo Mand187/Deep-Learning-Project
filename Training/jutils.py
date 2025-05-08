@@ -18,7 +18,7 @@ class Colors(Enum):
     LIGHT_YELLOW = "\033[38;5;226m"
     LIGHT_RED = "\033[38;5;196m"
 
-def print_color(text: str, color: Colors) -> None:
+def print_color(text: str, color: Colors, *args, **kwargs) -> None:
     """
     Print text in the specified color.
 
@@ -26,7 +26,7 @@ def print_color(text: str, color: Colors) -> None:
         text (str): The text to print.
         color (Colors): The color to print the text in.
     """
-    print(f"{color.value}{text}{Colors.RESET.value}")
+    print(f"{color.value}{text}{Colors.RESET.value}", *args, **kwargs)
 
 class ColorPrinter:
     """
@@ -35,7 +35,7 @@ class ColorPrinter:
     def __init__(self, color: Colors = Colors.BLUE):
         self.color = color
 
-    def print(self, text: str, color=None) -> None:
+    def print(self, text: str, color=None, *args, **kwargs) -> None:
         """
         Print text in the specified color.
 
@@ -47,7 +47,7 @@ class ColorPrinter:
             color = self.color.value
         else:
             color = color.value
-        print(f"{color}{text}{Colors.RESET.value}")
+        print(f"{color}{text}{Colors.RESET.value}", *args, **kwargs)
 
 def assert_file(path):
     assert os.path.exists(path), f"Path {path} does not exist"

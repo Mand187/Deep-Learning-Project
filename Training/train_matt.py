@@ -6,12 +6,14 @@ import torch.optim as optim
 import os
 import concurrent.futures
 from Training.jutils import Colors, ColorPrinter
+import json
 
 
 
 class Trainer:
     def __init__(self, model, trainLoader, testLoader, save_path, model_name, plot_path='.', device=None):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model_name = model_name
         device_id = self.device.index
         
         colors = [
@@ -21,6 +23,9 @@ class Trainer:
             Colors.ORANGE
         ]
         self.printer = ColorPrinter(color=colors[device_id % len(colors)])
+        
+        num_params = sum(p.numel() for p in model.parameters())
+        self.printer.print(f"{self.model_name}: Model has {num_params:,} parameters")
         
         
         self.best_model_file_path = None
@@ -41,34 +46,25 @@ class Trainer:
         self.patience = 10
         self.delta = 0.0
         
-        self.model_path = os.path.join(self.save_path, self.model_name)
-        os.makedirs(self.model_path, exist_ok=True)
-        self.printer.print(f"{self.model_name}: Model path: {self.model_path}")
+        self.model_top_dir = os.path.join(self.save_path, self.model_name)
+        os.makedirs(self.model_top_dir, exist_ok=True)
+        self.model_pickle_dir = os.path.join(self.model_top_dir, 'pickles')
+        os.makedirs(self.model_pickle_dir, exist_ok=True)
+        
+        self.history_file_path = os.path.join(self.model_top_dir, 'history.json')
+        
+        self.printer.print(f"{self.model_name}: Model Dir: {self.model_top_dir}")
         self.train_losses = []
         self.val_losses = []
+        self.common_losses = []
 
     def earlyStop(self, enable=True, patience=10, delta=0.0):
         self.use_early_stopping = enable
         self.patience = patience
         self.delta = delta
 
-    def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None):
+    def train(self, num_epochs=50, learningRate=0.001, criterion=None, optimizer=None, common_loss_fn=None):
         self.printer.print(f"{self.model_name}: Training for {num_epochs} epochs with learning rate {learningRate}")
-        if criterion is None:
-            criterion = nn.MSELoss(reduction='none')
-
-            def masked_loss(outputs, targets, mask):
-                loss = criterion(outputs, targets)
-                loss = loss * mask.unsqueeze(-1)  # Apply mask to the loss
-                return loss.mean()
-
-            def create_mask(targets, padding_value=0):
-                return (targets != padding_value).float()
-
-            # Wrap the criterion to include masking
-            def criterion(outputs, targets):
-                mask = create_mask(targets)
-                return masked_loss(outputs, targets, mask)
 
         if optimizer is None:
             optimizer = optim.Adam(self.model.parameters(), lr=learningRate)
@@ -77,15 +73,16 @@ class Trainer:
         patience_counter = 0
 
         self.train_losses, self.val_losses = [], []
-        epoch_times = []
+        self.epoch_times = []
 
         total_start_time = time.time()
 
 
         for epoch in range(1, num_epochs + 1):
             epoch_start = time.time()
-            running_loss = 0.0  # Initialize for the current epoch
-            val_loss = 0.0      # Initialize for the current epoch
+            running_loss = 0.0  
+            val_loss = 0.0      
+            common_loss = 0.0
 
             # --- Training ---
             self.model.train()
@@ -98,8 +95,6 @@ class Trainer:
                 loss = criterion(outputs, targets)
 
                 # Ensure loss is a scalar
-                if loss.ndim > 0: # If loss is not a scalar
-                    loss = loss.mean() # Reduce to scalar by taking the mean
 
                 loss.backward()
                 optimizer.step()
@@ -121,19 +116,21 @@ class Trainer:
                     outputs = outputs.view_as(targets)
                     loss = criterion(outputs, targets)
                     val_loss += loss.item()
+                    common_loss += common_loss_fn(outputs, targets).item()
 
 
 
             val_loss /= len(self.testLoader.data_iterable)
+            common_loss /= len(self.testLoader.data_iterable)
 
             self.val_losses.append(val_loss)
 
             # Calculate epoch time and append to list
             epoch_time = time.time() - epoch_start
-            epoch_times.append(epoch_time)
+            self.epoch_times.append(epoch_time)
 
             # Update main progress bar
-            self.printer.print(f"\r{self.model_name}: Epoch {epoch}/{num_epochs} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f} - Time: {epoch_time:.2f}s")
+            self.printer.print(f"\r{self.model_name}: Epoch {epoch}/{num_epochs} - Common Loss: {common_loss:.4f} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f} - Time: {epoch_time:.2f}s", end='')
 
             # --- Early Stopping ---
             if self.use_early_stopping:
@@ -166,14 +163,14 @@ class Trainer:
         
         self.pool.shutdown(wait=True)
         
-        return self.train_losses, self.val_losses, epoch_times
+        return self.train_losses, self.val_losses, self.epoch_times
 
 
 
     def save_model(self, epoch, *args, **kwargs):
         """Save the model to a file"""
-        self.best_model_file_path = os.path.join(self.model_path, f"{self.model_name}_epoch_{epoch}.pth")
-        self.printer.print(f"{self.model_name}: Saving model to {self.best_model_file_path}")
+        self.best_model_file_path = os.path.join(self.model_pickle_dir, f"{self.model_name}_epoch_{epoch}.pth")
+        #self.printer.print(f"{self.model_name}: Saving model to {self.best_model_file_path}")
         self.pool.submit(
             torch.save,
             self.model,
@@ -181,7 +178,19 @@ class Trainer:
             *args,
             **kwargs
         )
-        #torch.save(self.model, self.best_model_file_path)
+        self.pool.submit(self.save_history)
+    
+    def save_history(self):
+        history = {
+            'common_losses': self.common_losses,
+            'train_losses': self.train_losses,
+            'val_losses': self.val_losses,
+            'epoch_times': self.epoch_times
+        }
+        
+        with open(self.history_file_path, 'w') as f:
+            json.dump(history, f)
+        
     def plot_losses(self):
         plot_filepath = os.path.join(self.plot_path, f"{self.model_name}_losses.png")
         self.printer.print(f"{self.model_name}: Plotting losses to {plot_filepath}")
@@ -200,7 +209,9 @@ class Trainer:
         plt.savefig(plot_filepath)
         plt.close()
         self.printer.print(f"{self.model_name}: Plot saved to {plot_filepath}")
-        #plt.close()
+        plt.close()
+        
+        
     def test_model(self, losses):
         if self.best_model_file_path is not None:
             del self.model
@@ -221,4 +232,66 @@ class Trainer:
         total_loss = total_losses / len(self.testLoader.data_iterable)
         self.printer.print(f"{self.model_name}: Test Losses: {total_loss}")
         return total_loss
+
+    # def predict_130_frames(self, X, Y, detections_csv_path, output_csv_path):
+    #     if self.best_model_file_path is not None:
+    #         del self.model
+    #         self.model = torch.load(self.best_model_file_path).to(self.device)
+    #     self.model.eval()
+    #     headers = ['Frame', 'ID', 'X_pred', 'Y_pred', 'X_true', 'Y_true']
+    #     print(f"Exporting predictions to {csv_path}...")
+        
+    #     with open(output_csv_path, 'w', newline='') as csvfile:
+    #         csv_writer = csv.writer(csvfile)
+    #         csv_writer.writerow(headers)
+            
+    #         with torch.no_grad():
+    #             # X shape: (100, 18, 5)
+    #             # Y shape: (30, 18, 2)
+                
+    #             # X contains (Seq_idx, ID, Features) 
+    #             #    Features = [Frame, X, Y, Width, Height]
+    #             # Y contains [Seq_idx, ID, X, Y]
+                
+                
+    #             x = X[sequence_idx]
+    #             x_unsqueezed = x.unsqueeze(0).to(device)
+    #             y = Y[sequence_idx]
+    #             y = y.cpu().numpy()
+    #             y_pred = model(x_unsqueezed).squeeze(0).cpu().numpy()
+
+                
+    #             # Write first 100 frames from x only
+    #             # true = pred
+    #             for frame_id, frame in enumerate(x_denorm, start=0):
+    #                 for v_id, v_id_features in enumerate(frame):
+    #                     row = [
+    #                         frame_id,  # Frame
+    #                         v_id,  # ID
+    #                         int(v_id_features[0]),  # X_pred
+    #                         int(v_id_features[1]),  # Y_pred
+    #                         int(v_id_features[0]),  # X_true
+    #                         int(v_id_features[1])   # Y_true
+    #                     ]
+    #                     if np.any(v_id_features < 0):
+    #                         continue
+    #                     csv_writer.writerow(row)
+    #             # Write next 30 frames from y and y_pred
+    #             for seq_idx in range(30):
+    #                 y_frame = y_denorm[seq_idx]
+    #                 y_pred_frame = y_pred_denorm[seq_idx]
+    #                 for y_id, (y_id_features, y_pred_id_features) in enumerate(zip(y_frame, y_pred_frame)):
+    #                     row = [
+    #                         seq_idx + 100,  # Frame
+    #                         y_id,
+    #                         int(y_pred_id_features[0]),  # X_pred
+    #                         int(y_pred_id_features[1]),  # Y_pred
+    #                         int(y_id_features[0]),  # X_true
+    #                         int(y_id_features[1]),   # Y_true
+    #                     ]
+    #                     if np.any(y_id_features < 0):
+    #                         pass
+    #                         continue
+    #                     csv_writer.writerow(row)
+    #     print(f"Finished exporting predictions to {csv_path}")
 

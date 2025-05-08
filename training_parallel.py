@@ -26,6 +26,7 @@ class TaskTuple:
         save_model_dir,
         model_kwargs,
         loss_fn,
+        common_loss_fn,
         learning_rate,
         num_epochs,
         optimizer_kwargs,
@@ -39,6 +40,7 @@ class TaskTuple:
             self.save_model_dir = save_model_dir
             self.model_kwargs = model_kwargs
             self.loss_fn = loss_fn
+            self.common_loss_fn = common_loss_fn
             self.learning_rate = learning_rate
             self.num_epochs = num_epochs
             self.optimizer_kwargs = optimizer_kwargs
@@ -55,6 +57,7 @@ class TaskTuple:
             self.save_model_dir,
             self.model_kwargs,
             self.loss_fn,
+            self.common_loss_fn,
             self.learning_rate,
             self.num_epochs,
             self.gpu_id,
@@ -72,6 +75,7 @@ def train_model(
     save_model_dir,
     model_kwargs,
     loss_fn,
+    common_loss_fn,
     learning_rate,
     num_epochs,
     gpu_id,
@@ -151,7 +155,8 @@ def train_model(
             num_epochs=num_epochs, 
             learningRate=learning_rate, 
             criterion=loss_fn, 
-            optimizer=torch.optim.AdamW(model.parameters(), lr=learning_rate, **optimizer_kwargs)
+            optimizer=torch.optim.AdamW(model.parameters(), lr=learning_rate, **optimizer_kwargs),
+            common_loss_fn=common_loss_fn
         )
         printer.print(f"[{model_name} GPU:{gpu_id}] trainScript.train() completed.", Colors.GREEN)
         
@@ -212,6 +217,7 @@ def main():
                 'dropout_rate': cfg.DROPOUT_RATE
             },
             loss_fn=ADELoss(),
+            common_loss_fn=ADELoss(),
             learning_rate=cfg.LEARNING_RATE,
             num_epochs=50,
             optimizer_kwargs={}
@@ -230,6 +236,7 @@ def main():
                 'dropout_rate': cfg.DROPOUT_RATE
             },
             loss_fn=FDELoss(),
+            common_loss_fn=ADELoss(),
             learning_rate=cfg.LEARNING_RATE,
             num_epochs=50,
             optimizer_kwargs={}
@@ -248,6 +255,7 @@ def main():
                 'dropout_rate': cfg.DROPOUT_RATE
             },
             loss_fn=RMSELoss(),
+            common_loss_fn=ADELoss(),
             learning_rate=cfg.LEARNING_RATE,
             num_epochs=50,
             optimizer_kwargs={}
@@ -266,6 +274,7 @@ def main():
                 'dropout_rate': cfg.DROPOUT_RATE
             },
             loss_fn=PaddedMSELoss(),
+            common_loss_fn=ADELoss(),
             learning_rate=cfg.LEARNING_RATE,
             num_epochs=50,
             optimizer_kwargs={}
