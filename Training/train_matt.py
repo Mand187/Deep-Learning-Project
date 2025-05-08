@@ -70,7 +70,7 @@ class Trainer:
         epoch_times = []
 
         total_start_time = time.time()
-        pbar = tqdm(range(1, num_epochs + 1), desc="Training Progress")
+        pbar = tqdm(range(1, num_epochs + 1), desc=f"{self.model_name} Training Progress")
 
 
         for epoch in pbar:
@@ -83,7 +83,7 @@ class Trainer:
 
             train_iterator = tqdm(
                 self.trainLoader,
-                desc=f"Epoch {epoch}/{num_epochs} [Train]",
+                desc=f" {self.model_name} Epoch {epoch}/{num_epochs} [Train]",
                 leave=False
             )
 

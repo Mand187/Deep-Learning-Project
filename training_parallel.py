@@ -1,4 +1,5 @@
 import config as cfg
+import traceback
 import os
 import multiprocessing as mp
 import torch
@@ -12,22 +13,74 @@ from Training.customLoss import ADELoss, FDELoss, RMSELoss, PaddedMSELoss
 printer = ColorPrinter()
 
 # %
+class TaskTuple:
+    
+    def __init__(
+        self,
+        model_name,
+        train_loader,
+        test_loader,
+        prediction_length,
+        num_ids,
+        sequence_length,
+        save_model_dir,
+        model_kwargs,
+        loss_fn,
+        learning_rate,
+        num_epochs,
+        optimizer_kwargs,
+    ):
+            self.model_name = model_name
+            self.train_loader = train_loader
+            self.test_loader = test_loader
+            self.prediction_length = prediction_length
+            self.num_ids = num_ids
+            self.sequence_length = sequence_length
+            self.save_model_dir = save_model_dir
+            self.model_kwargs = model_kwargs
+            self.loss_fn = loss_fn
+            self.learning_rate = learning_rate
+            self.num_epochs = num_epochs
+            self.optimizer_kwargs = optimizer_kwargs
+    def set_gpu_id(self, gpu_id):
+        self.gpu_id = gpu_id
+    def get_tuple(self):
+        return (
+            self.model_name,
+            self.train_loader,
+            self.test_loader,
+            self.prediction_length,
+            self.num_ids,
+            self.sequence_length,
+            self.save_model_dir,
+            self.model_kwargs,
+            self.loss_fn,
+            self.learning_rate,
+            self.num_epochs,
+            self.gpu_id,
+            self.optimizer_kwargs
+        )
+
+
 def train_model(
     model_name,
     train_loader,
     test_loader,
-    save_model_dir,
     prediction_length,
+    num_ids,
+    sequence_length,
+    save_model_dir,
     model_kwargs,
     loss_fn,
     learning_rate,
     num_epochs,
     gpu_id,
-    optimizer_kwargs={}
+    optimizer_kwargs
 ):
     # print("Process pool created with 1 processes.") # Removed misleading print
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
     device = torch.device('cuda:0')
+    printer.print(f"[{model_name} GPU:{gpu_id}] Using device: {device}", Colors.CYAN)
     
     try:
         train_prefetcher = CudaDataPrefetcher(
@@ -42,11 +95,10 @@ def train_model(
         )
         printer.print(f"[{model_name} GPU:{gpu_id}] Data loading complete.", Colors.CYAN)
 
-        model_file_path = os.path.join(save_model_dir, model_name) 
         model = FrameTransformer(
             input_feature_size=cfg.NUM_INPUT_FEATURES, 
-            num_ids=transformer_max_ids_per_frame, 
-            sequence_length=X.size(1),  
+            num_ids=num_ids, 
+            sequence_length=sequence_length,  
             prediction_length=prediction_length,
             **model_kwargs
         )
@@ -76,7 +128,6 @@ def train_model(
         
         return model # Or more detailed results if needed
     except Exception as e:
-        import traceback
         printer.print(f"ERROR in train_model for {model_name} on GPU {gpu_id}: {type(e).__name__}: {e}", Colors.RED)
         # traceback.print_exc() # This prints to stderr of the child process
         error_traceback = traceback.format_exc()
@@ -88,7 +139,7 @@ def train_model(
         raise # Re-raise the exception to be caught by the pool's error handling / callback
 
 
-if __name__ == '__main__':
+def main():
     root_dir = os.getcwd()  # Use current working directory as root
     data_dir = os.path.join(root_dir, 'Data')
     csv_dir = os.path.join(data_dir, 'csv')
@@ -102,25 +153,58 @@ if __name__ == '__main__':
     X, Y = create_sequences(all_data_tensor, prediction_length=cfg.PREDICTION_LENGTH)
     train_loader, test_loader = create_dataloaders(X, Y, num_features=num_features)
 
+    """
+    model_name,
+    train_loader,
+    test_loader,
+    prediction_length,
+    num_ids,
+    sequence_length,
+    save_model_dir,
+    model_kwargs,
+    loss_fn,
+    learning_rate,
+    num_epochs,
+    gpu_id,
+    optimizer_kwargs={}
+    """
     tasks = [
-        {
-            'model_name': 'ade_model_1s.pth',
-            'train_loader': train_loader,
-            'test_loader': test_loader,
-            'save_model_dir': os.path.join(root_dir, 'Model', 'Saved_Model'),
-            'model_kwargs' : {
+        TaskTuple(
+            model_name='ade_model_1s',
+            train_loader=train_loader,
+            test_loader=test_loader,
+            prediction_length=cfg.PREDICTION_LENGTH,
+            num_ids=transformer_max_ids_per_frame,
+            sequence_length=X.size(1),
+            save_model_dir=os.path.join(root_dir, 'Model', 'Saved_Model'),
+            model_kwargs={
                 'hidden_size': cfg.HIDDEN_SIZE,
                 'num_heads': cfg.NUM_HEADS,
                 'dropout_rate': cfg.DROPOUT_RATE
             },
-            'loss_fn' : FDELoss,
-            'optimizer_kwargs' : {
-                
+            loss_fn=ADELoss(),
+            learning_rate=cfg.LEARNING_RATE,
+            num_epochs=2,
+            optimizer_kwargs={}
+        ),
+        TaskTuple(
+            model_name='fde_model_1s',
+            train_loader=train_loader,
+            test_loader=test_loader,
+            prediction_length=cfg.PREDICTION_LENGTH,
+            num_ids=transformer_max_ids_per_frame,
+            sequence_length=X.size(1),
+            save_model_dir=os.path.join(root_dir, 'Model', 'Saved_Model'),
+            model_kwargs={
+                'hidden_size': cfg.HIDDEN_SIZE,
+                'num_heads': cfg.NUM_HEADS,
+                'dropout_rate': cfg.DROPOUT_RATE
             },
-            'gpu_id' : 0,
-            'learning_rate' : cfg.LEARNING_RATE,
-            'num_epochs' : 2,
-        }
+            loss_fn=FDELoss(),
+            learning_rate=cfg.LEARNING_RATE,
+            num_epochs=2,
+            optimizer_kwargs={}
+        ),
     ]
     print("Data directory: ", data_dir)
     print("CSV directory: ", csv_dir)
@@ -154,26 +238,19 @@ if __name__ == '__main__':
 
         results_async = [] # To store async results if needed later for .get()
 
-        for i, kwargs in enumerate(tasks):
-            printer.print(f"Starting task {i+1}/{len(tasks)} on GPU {kwargs['gpu_id']}", Colors.GREEN)
+        for i, task in enumerate(tasks):
+            task.set_gpu_id(i % num_gpus_to_use)  # Assign GPU ID in a round-robin fashion
+            printer.print(f"Starting task {i+1}/{len(tasks)} on GPU {task.gpu_id}", Colors.GREEN)
             # Ensure arguments are passed in the correct order to train_model
-            task_args_tuple = (
-                kwargs['model_name'],
-                kwargs['train_loader'],
-                kwargs['test_loader'],
-                kwargs['save_model_dir'],
-                kwargs['model_kwargs'],
-                kwargs['loss_fn'],
-                kwargs['learning_rate'],
-                kwargs['num_epochs'],
-                kwargs['gpu_id'],  # This is the GPU ID the train_model function will use
-                kwargs.get('optimizer_kwargs', {}) # Use .get for safety if optimizer_kwargs might be missing
-            )
+                #kwargs.values()
+                # )
+            # train_model(*task_args_tuple)
+            # exit()
             
             # Capture the correct model_name and gpu_id for the callback
             # to avoid issues with closures in loops.
-            model_name_for_callback = kwargs['model_name']
-            gpu_id_for_task = kwargs['gpu_id']
+            model_name_for_callback = task.model_name
+            gpu_id_for_task = task.gpu_id
 
             def callback_fn(result_or_exc, name, gpu):
                 # This function will be executed in the main process
@@ -186,7 +263,7 @@ if __name__ == '__main__':
 
             res = pool.apply_async(
                 train_model,
-                args=task_args_tuple,
+                args=task.get_tuple(),  # Unpack the tuple to pass as arguments
                 callback=lambda r, name=model_name_for_callback, gpu=gpu_id_for_task: callback_fn(r, name, gpu)
             )
             results_async.append(res)
@@ -195,18 +272,23 @@ if __name__ == '__main__':
         pool.close()
         pool.join()
 
-        # Optionally, explicitly get results to raise exceptions in the main process if not caught by callback
-        # for i, res_async in enumerate(results_async):
-        #     try:
-        #         task_result = res_async.get()
-        #         printer.print(f"Task {i} final result retrieved.", Colors.CYAN)
-        #     except Exception as e:
-        #         printer.print(f"MAIN THREAD EXCEPTION for task {i} on .get(): {type(e).__name__}: {e}", Colors.RED)
-
-        print("All tasks completed.")
+        # Explicitly get results to raise/catch exceptions from tasks in the main process
+        printer.print("Retrieving results/exceptions from tasks...", Colors.CYAN)
+        for i, res_async in enumerate(results_async):
+            try:
+                task_result = res_async.get() # This will re-raise exceptions from the child process
+                printer.print(f"Task {tasks[i].model_name} (GPU {tasks[i].gpu_id}) final result retrieved successfully.", Colors.CYAN)
+            except Exception as e:
+                # This catches exceptions that occurred in the train_model function and were propagated by apply_async
+                printer.print(f"MAIN PROCESS EXCEPTION for task {tasks[i].model_name} (GPU {tasks[i].gpu_id}) on .get(): {type(e).__name__}: {e}", Colors.RED)
+                error_traceback = traceback.format_exc()
+                printer.print(error_traceback, Colors.RED)
+                # If the error_traceback was part of the exception object (it usually isn't directly),
     except KeyboardInterrupt:
         print("Keyboard interrupt received. Terminating processes...")
         if pool:
             pool.terminate()
             pool.join()
         print("Processes terminated.")
+if __name__ == '__main__':
+    main()

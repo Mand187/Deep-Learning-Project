@@ -157,41 +157,66 @@ def create_sequences(all_data_tensor, sequence_offset = 1, sequence_length=SEQUE
 
 class VehiclePositionDataset(data.Dataset):
     def __init__(self, features, labels, padding_token=PADDING_TOKEN, feauture_range=(0,5), num_features=NUM_INPUT_FEATURES):
-        self.features = features # [Num_sequences, SEQUENCE_LENGTH, ID, Features]
-        self.labels = labels
-        self.padding_token = padding_token
-        self.x_scaler = MinMaxScaler(feature_range=(0, 16))
-        self.y_scaler = MinMaxScaler(feature_range=(0, 9))
-        self.other_scaler = MinMaxScaler(feauture_range)
-        
-        features_x = features[..., 0].reshape(-1, 1)
-        features_y = features[..., 1].reshape(-1, 1)
-        features_other = features[..., 2:].reshape(-1, num_features-2)
-        
-        features_x = self.x_scaler.fit_transform(features_x.cpu().numpy())
-        features_y = self.y_scaler.fit_transform(features_y.cpu().numpy())
-        #features_other = self.other_scaler.fit_transform(features_other.cpu().numpy())
-        
-        print(f"\n After Normalization:")
-        print(f"X range: {features_x.min():.4f} to {features_x.max():.4f}")
-        print(f"Y range: {features_y.min():.4f} to {features_y.max():.4f}")
-        print(f"Height range: {features_other[:, 0].min():.4f} to {features_other[:, 0].max():.4f}")
-        print(f"Width range: {features_other[:, 1].min():.4f} to {features_other[:, 1].max():.4f}")
-        
-        print(f"Target X range: {labels[..., 0].min():.4f} to {labels[..., 0].max():.4f}")
-        print(f"Target Y range: {labels[..., 1].min():.4f} to {labels[..., 1].max():.4f}")
-        
-        
-        
-        features = np.concatenate((features_x, features_y, features_other), axis=-1)
-        features = torch.tensor(features, dtype=torch.float32)
-        
-        
+        try:
+            self.features = features # [Num_sequences, SEQUENCE_LENGTH, ID, Features]
+            self.labels = labels
+            self.padding_token = padding_token
+            self.x_scaler = MinMaxScaler(feature_range=(0, 16))
+            self.y_scaler = MinMaxScaler(feature_range=(0, 9))
+            self.other_scaler = MinMaxScaler(feauture_range)
+            
+            # Ensure features is a CPU tensor before attempting to reshape and convert to numpy
+            features_cpu = features.cpu()
+            
+            features_x = features_cpu[..., 0].reshape(-1, 1)
+            features_y = features_cpu[..., 1].reshape(-1, 1)
+            features_other = features_cpu[..., 2:].reshape(-1, num_features-2)
+            
+            features_x = self.x_scaler.fit_transform(features_x.numpy()) # Convert to numpy after reshape
+            features_y = self.y_scaler.fit_transform(features_y.numpy()) # Convert to numpy after reshape
+            #features_other = self.other_scaler.fit_transform(features_other.numpy()) # Convert to numpy
+            
+            print(f"\n After Normalization:")
+            print(f"X range: {features_x.min():.4f} to {features_x.max():.4f}")
+            print(f"Y range: {features_y.min():.4f} to {features_y.max():.4f}")
+            # Ensure features_other is 2D before accessing columns
+            if features_other.ndim == 2 and features_other.shape[1] > 0:
+                 print(f"Height range: {features_other[:, 0].min():.4f} to {features_other[:, 0].max():.4f}")
+                 if features_other.shape[1] > 1:
+                     print(f"Width range: {features_other[:, 1].min():.4f} to {features_other[:, 1].max():.4f}")
+                 else:
+                     print("Width range: Not available (features_other has only 1 column)")
+            else:
+                print("Height/Width range: Not available (features_other is not 2D or is empty)")
+
+            print(f"Target X range: {labels[..., 0].min():.4f} to {labels[..., 0].max():.4f}")
+            print(f"Target Y range: {labels[..., 1].min():.4f} to {labels[..., 1].max():.4f}")
+            
+            # Concatenate numpy arrays
+            features_np = np.concatenate((features_x, features_y, features_other), axis=-1)
+            # Convert the final processed numpy array back to a tensor
+            self.features = torch.tensor(features_np, dtype=torch.float32).reshape(features.shape)
+
+        except Exception as e:
+            print(f"ERROR in VehiclePositionDataset __init__: {type(e).__name__}: {e}")
+            import traceback
+            print(traceback.format_exc())
+            raise # Re-raise the exception to make it visible
+
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        return self.features[idx], self.labels[idx]
+        try:
+            return self.features[idx], self.labels[idx]
+        except Exception as e:
+            print(f"ERROR in VehiclePositionDataset __getitem__ for idx {idx}: {type(e).__name__}: {e}")
+            import traceback
+            print(traceback.format_exc())
+            # In a multiprocessing DataLoader context, raising here might terminate the worker.
+            # It's often better to return a sentinel value or handle it in the collation function,
+            # but for debugging, re-raising can help identify the issue.
+            raise
 
 
 def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES):
