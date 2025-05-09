@@ -9,6 +9,7 @@ videos/
 *.MP4
 runs/
 *.dtmp
+*.drawio.bkp
 *.csv
 *.pth
 *.key
