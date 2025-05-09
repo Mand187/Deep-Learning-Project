@@ -50,7 +50,6 @@ class Trainer:
         self.wandb_run.config.update({"device": str(self.device)})
         
         
-        self.best_model_file_path = os.path.join(self.model_pickle_dir, f"{self.model_name}.pth")
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
         self.model: FrameTransformer = model
         self.save_path = save_path
@@ -68,14 +67,18 @@ class Trainer:
         self.patience = 10
         self.delta = 0.0
         
-        self.model_artifact = wandb.Artifact(self.model_name, type="model")
-        self.model_artifact.add_file(self.best_model_file_path)
-        
         
         self.model_top_dir = os.path.join(self.save_path, self.model_name)
         os.makedirs(self.model_top_dir, exist_ok=True)
         self.model_pickle_dir = os.path.join(self.model_top_dir, 'pickles')
         os.makedirs(self.model_pickle_dir, exist_ok=True)
+        self.best_model_file_path = os.path.join(self.model_pickle_dir, f"{self.model_name}.pth")
+        # make pickle file so artifact can be created
+        with open(self.best_model_file_path, 'w') as f:
+            pass
+        self.model_artifact = wandb.Artifact(self.model_name, type="model")
+        self.model_artifact.add_file(self.best_model_file_path)
+        
         
         self.history_file_path = os.path.join(self.model_top_dir, 'history.json')
         

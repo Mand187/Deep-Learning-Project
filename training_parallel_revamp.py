@@ -7,7 +7,7 @@ import torch.multiprocessing as mp # Use torch.multiprocessing
 from torch.utils.data import TensorDataset, DataLoader
 from torchtnt.utils.data import CudaDataPrefetcher
 from Training.jutils import ColorPrinter, Colors, wandb_login
-from Data.data_loading_jaskin import load_and_preprocess_data, create_tensor_from_dataframe, create_sequences, VehiclePositionDataset
+from Data.data_loading_jaskin import load_and_preprocess_data, create_tensor_from_dataframe, create_sequences, VehiclePositionDataset, get_datasets
 from Training.train_matt import Trainer
 from NextNet.model_split import FrameTransformer
 from Training.customLoss import ADELoss, FDELoss, RMSELoss, PaddedMSELoss
@@ -19,10 +19,6 @@ printer = ColorPrinter()
 # Function to be executed by each worker process
 def worker_function(
     assigned_gpu_id, # GPU assigned to this worker
-    X_train_data, # Actual tensor
-    Y_train_data, # Actual tensor
-    X_test_data,  # Actual tensor
-    Y_test_data,   # Actual tensor
     task_config_dict # Dictionary containing ALL configurations for this task
 ):
     run = None
@@ -57,16 +53,39 @@ def worker_function(
         printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] Worker started. Initialized W&B run: {run.name} (ID: {run.id}). Using device: {str(device)}", Colors.CYAN)
 
         # 2. Create DataLoaders and Prefetchers (using cfg_wandb)
-        train_dataset = VehiclePositionDataset(
-            X_train_data,
-            Y_train_data,
-            num_features=cfg_wandb.num_features,
+        printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] Calling get_datasets with dataset_name: {cfg_wandb.dataset_name}", Colors.BLUE)
+        train_dataset, test_dataset = get_datasets(
+            csv_folder=cfg_wandb.cfg_csv_folder,
+            sequence_offset=cfg_wandb.cfg_sequence_offset,
+            sequence_length=cfg_wandb.cfg_sequence_length, # Global sequence length from config
+            prediction_length=cfg_wandb.prediction_length, # Task-specific prediction length
+            padding_token=cfg_wandb.cfg_padding_token,
+            feauture_range=cfg_wandb.cfg_feature_range, # Note: original func has typo 'feauture_range'
+            num_features=cfg_wandb.cfg_num_input_features,
+            normalize=cfg_wandb.cfg_normalize_dataset,
+            recompute=cfg_wandb.cfg_recompute_datasets,
+            save=cfg_wandb.cfg_save_datasets,
+            save_dir=cfg_wandb.cfg_dataset_save_dir,
+            dataset_name=cfg_wandb.dataset_name # Dynamic name for this task's dataset cache
         )
-        test_dataset = VehiclePositionDataset(
-            X_test_data,
-            Y_test_data,
-            num_features=cfg_wandb.num_features,
-        )
+        printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] get_datasets returned. Train dataset size: {len(train_dataset)}, Test dataset size: {len(test_dataset)}", Colors.GREEN)
+
+        # Retrieve max_ids_per_frame from the dataset and update wandb config
+        if hasattr(train_dataset, 'max_ids_per_frame') and train_dataset.max_ids_per_frame is not None:
+            actual_num_ids = train_dataset.max_ids_per_frame
+            wandb.config.update({"num_ids": actual_num_ids}, allow_val_change=True)
+            printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] Retrieved num_ids (max_ids_per_frame) from dataset: {actual_num_ids}", Colors.GREEN)
+        else:
+            printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] WARNING: Could not retrieve max_ids_per_frame from dataset. Model might use a default or incorrect value for num_ids.", Colors.YELLOW)
+            # Fallback or error handling if num_ids is critical and not found
+            # For now, we rely on wandb.config potentially having a default from the initial task_config_dict,
+            # or the model having its own default. This should ideally be made more robust.
+            # If num_ids was removed from task_config_dict, this will be an issue.
+            # It's better to ensure get_datasets always provides it or raise an error.
+            # If num_ids was removed from task_config_dict, this will be an issue.
+            # It's better to ensure get_datasets always provides it or raise an error.
+            if 'num_ids' not in cfg_wandb or cfg_wandb.num_ids is None: # Check if it was never set
+                 raise ValueError(f"num_ids is critical but not found in dataset and not in wandb.config for task {model_name_for_print}")
 
         train_loader = DataLoader(
             train_dataset,
@@ -111,9 +130,9 @@ def worker_function(
 
         model = FrameTransformer(
             input_feature_size=cfg_wandb.cfg_num_input_features,
-            num_ids=cfg_wandb.num_ids,
-            sequence_length=cfg_wandb.sequence_length,
-            prediction_length=cfg_wandb.prediction_length,
+            num_ids=cfg_wandb.num_ids, # Now sourced from dataset via wandb.config update
+            sequence_length=cfg_wandb.cfg_sequence_length, # This is the global cfg.SEQUENCE_LENGTH
+            prediction_length=cfg_wandb.prediction_length, # Task-specific prediction length
             **model_kwargs_dict
         ).to(device)
         printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] Model FrameTransformer instantiated on {device}. Params: {sum(p.numel() for p in model.parameters())}", Colors.GREEN)
@@ -174,22 +193,20 @@ def main():
     wandb_group_name_global = f"parallel_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     root_dir = os.getcwd()
-    data_dir = os.path.join(root_dir, 'Data')
-    csv_dir = os.path.join(data_dir, 'csv')
     
-    printer.print(f"Initializing data loading...", Colors.CYAN)
-    df, transformer_max_ids_per_frame = load_and_preprocess_data(csv_folder=csv_dir)
-    all_data_tensor, num_features_global = create_tensor_from_dataframe(df, transformer_max_ids_per_frame)
-    printer.print(f"Data loaded. All data tensor shape: {all_data_tensor.shape}, Num features: {num_features_global}", Colors.GREEN)
+    # Define num_features_global from config
+    num_features_global = cfg.NUM_INPUT_FEATURES 
+    printer.print(f"Global number of input features: {num_features_global}", Colors.CYAN)
 
-    data_store = {}
+    printer.print(f"Verifying cfg.CSV_FOLDER: {cfg.CSV_FOLDER}", Colors.CYAN)
+    if not os.path.isdir(cfg.CSV_FOLDER):
+        printer.print(f"Error: cfg.CSV_FOLDER='{cfg.CSV_FOLDER}' is not a valid directory. Please check config.py.", Colors.RED)
+        return
+    # Removed the call to load_and_preprocess_data to get transformer_max_ids_per_frame_main
+
+    # Removed data_store and direct creation of X, Y tensors in main
+
     prediction_lengths_secs = [1, 2, 3, 4]
-    for secs in prediction_lengths_secs:
-        pred_len_frames = 30 * secs
-        X_data, Y_data = create_sequences(all_data_tensor, prediction_length=pred_len_frames)
-        data_store[f"X_{secs}s"] = X_data
-        data_store[f"Y_{secs}s"] = Y_data
-        printer.print(f"Created sequences for {secs}s: X shape {X_data.shape}, Y shape {Y_data.shape}", Colors.BLUE)
 
     # This list will hold the comprehensive config dictionaries for each task
     task_configs_list = [] 
@@ -204,24 +221,18 @@ def main():
             X_key = f"X_{secs}s"
             Y_key = f"Y_{secs}s"
             
-            if X_key not in data_store or Y_key not in data_store:
-                printer.print(f"Data for {secs}s not found in data_store. Skipping task {model_name}.", Colors.YELLOW)
-                continue
+            dataset_name_for_task = f"dataset_pred{secs}s_seq{cfg.SEQUENCE_LENGTH}_norm{cfg.NORMALIZE_DATASET}"
 
-            current_X_data = data_store[X_key]
-
-            # Create the comprehensive config dictionary for this task
             task_specific_config = {
                 "run_id": wandb.util.generate_id(), # Unique ID for W&B run
                 "wandb_project_name": wandb_project_name_global,
                 "wandb_group_name": wandb_group_name_global,
                 "model_name": model_name,
                 "X_data_key": X_key, 
-                "Y_data_key": Y_key, 
-                "num_features": num_features_global, 
-                "prediction_length": 30 * secs,
-                "num_ids": transformer_max_ids_per_frame,
-                "sequence_length": current_X_data.size(1),
+                "Y_data_key": Y_key, # This key is no longer used for data lookup in main
+                "num_features": num_features_global, # Correctly using the defined variable
+                "prediction_length": cfg.FPS * secs,
+                "sequence_length": cfg.SEQUENCE_LENGTH, # Global sequence length, used by FrameTransformer
                 "save_model_dir": os.path.join(root_dir, 'Model', 'Saved_Model_Refactor'),
                 "model_kwargs": {'hidden_size': cfg.HIDDEN_SIZE, 'num_heads': cfg.NUM_HEADS, 'dropout_rate': cfg.DROPOUT_RATE},
                 "loss_fn_class_name": model_type_info["loss"],
@@ -231,6 +242,20 @@ def main():
                 "learning_rate": cfg.LEARNING_RATE,
                 "num_epochs": cfg.EPOCHS,
                 "optimizer_kwargs": {},
+                
+                # Configs for get_datasets and DataLoaders
+                "dataset_name": dataset_name_for_task,
+                "cfg_csv_folder": cfg.CSV_FOLDER,
+                "cfg_sequence_offset": cfg.SEQUENCE_OFFSET,
+                "cfg_sequence_length": cfg.SEQUENCE_LENGTH, # Passed to get_datasets for sequence creation
+                "cfg_padding_token": cfg.PADDING_TOKEN,
+                "cfg_feature_range": cfg.FEATURE_RANGE,
+                "cfg_num_input_features": cfg.NUM_INPUT_FEATURES,
+                "cfg_normalize_dataset": cfg.NORMALIZE_DATASET,
+                "cfg_recompute_datasets": cfg.RECOMPUTE_DATASETS,
+                "cfg_save_datasets": cfg.SAVE_DATASETS,
+                "cfg_dataset_save_dir": cfg.DATASET_SAVE_DIR,
+
                 "cfg_num_workers": cfg.NUM_WORKERS,
                 "cfg_train_batch_size": cfg.TRAIN_BATCH_SIZE,
                 "cfg_test_batch_size": cfg.TEST_BATCH_SIZE,
@@ -284,15 +309,11 @@ def main():
             # Arguments for the worker process
             args_for_worker = (
                 gpu_id_to_use, # Passed directly for device selection convenience
-                data_store[task_config_for_worker["X_data_key"]],
-                data_store[task_config_for_worker["Y_data_key"]],
-                data_store[task_config_for_worker["X_data_key"]], # Assuming same test data keys
-                data_store[task_config_for_worker["Y_data_key"]],
                 task_config_for_worker # The comprehensive config dictionary
             )
             current_run_id = task_config_for_worker['run_id'] # For print statement
 
-            printer.print(f"Preparing to start task {task_config_for_worker['model_name']} (Run ID: {current_run_id}) on GPU {gpu_id_to_use}", Colors.BLUE)
+            printer.print(f"Preparing to start task {task_config_for_worker['model_name']} (Run ID: {current_run_id}) on GPU {gpu_id_to_use} with dataset_name: {task_config_for_worker['dataset_name']}", Colors.BLUE)
             p = mp.Process(target=worker_function, args=args_for_worker)
             p.start()
             active_processes_info.append({

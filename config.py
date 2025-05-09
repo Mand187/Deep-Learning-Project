@@ -20,6 +20,17 @@ EARLY_STOPPING_PATIENCE = 5
 EARLY_STOPPING_DELTA = 0.01
 PIN_MEMORY = True
 NUM_GPUS_TO_USE = 4
+FPS = 30 # Added FPS, as it's used in training_parallel_revamp.py to calculate pred_len_frames
+
+# Parameters for get_datasets function in data_loading_jaskin.py
+CSV_FOLDER = './Data/csv/' # Adjusted default to match common structure, verify actual path
+SEQUENCE_OFFSET = 1
+FEATURE_RANGE = (0, 5)  # For normalization in VehiclePositionDataset, if used
+NORMALIZE_DATASET = False # Whether to normalize features in VehiclePositionDataset
+RECOMPUTE_DATASETS = False # Whether to force recomputation of datasets even if saved files exist
+SAVE_DATASETS = True       # Whether to save computed datasets to disk
+DATASET_SAVE_DIR = 'Data/Processed_Datasets/' # Subdirectory for saved PyTorch datasets
+# DATASET_NAME_PREFIX = "trajectory_dataset" # A prefix for saved dataset files, full name often dynamic
 
 # DataLoader parameters
 NUM_WORKERS = 40
@@ -27,7 +38,7 @@ NUM_BATCHES_TO_PREFETCH = 2
 NUM_TRAIN_BATCHES_TO_PREFETCH = 2
 NUM_TEST_BATCHES_TO_PREFETCH = 2
 TRAIN_BATCH_SIZE = 64
-TEST_BATCH_SIZE = 64
+TEST_BATCH_SIZE = 128
 
 # Training parameters
 EPOCHS = 50

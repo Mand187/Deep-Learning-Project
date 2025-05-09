@@ -1,4 +1,5 @@
 import os
+import warnings
 import torch
 import torch.utils.data as data
 import pandas as pd
@@ -6,13 +7,29 @@ import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from torchtnt.utils.data import CudaDataPrefetcher
+import shutil # For rmtree
+from datetime import datetime # For success marker
 
 from config import *
+from Training.jutils import ColorPrinter, Colors # Assuming ColorPrinter is in jutils
+
+printer = ColorPrinter() # Assuming Colors can be used like this, or use ColorPrinter
 
 # 687,223,758 parameters
 
 def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
     """Load and preprocess CSV data from folder"""
+    df_path = os.path.join(csv_folder, 'df.pt')
+    if os.path.exists(df_path):
+        print(f"Loading preprocessed DataFrame from {df_path}")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            df = torch.load(df_path)
+        # Infer max_ids_per_frame from the loaded DataFrame
+        max_ids_per_frame = df['ID_Norm'].max() + 1  # Add 1 because IDs are 0-based indices
+        return df, max_ids_per_frame
+        
+    
     # Path to the Preprocessed_CSVs folder
     csv_files = [f for f in os.listdir(csv_folder) if f.endswith('.csv')]
     
@@ -79,23 +96,38 @@ def load_and_preprocess_data(csv_folder='./Preprocessed_CSVs'):
     
     transformer_max_ids_per_frame = int(frame_id_counts.max())
     
+    torch.save(df, df_path)  # Save the DataFrame for future use
+    
     
     return df, transformer_max_ids_per_frame
 
 
-def create_tensor_from_dataframe(df, transformer_max_ids_per_frame): # Keep arg for compatibility if needed elsewhere
+def create_tensor_from_dataframe(df, *args, **kwargs): # Keep arg for compatibility if needed elsewhere
     """Create a tensor from dataframe for model input"""
     #! This is the slow function
+    csv_dir = kwargs.get('csv_dir', './Preprocessed_CSVs')
+    tensor_path = os.path.join(csv_dir, 'all_data_tensor.pt')
+    if os.path.exists(tensor_path):
+        print(f"Loading tensor from {tensor_path}")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            all_data_tensor = torch.load(tensor_path)
+        
+        #infer tensor_id_dimension_size and len(features) from the loaded tensor
+        tensor_id_dimension_size = all_data_tensor.shape[2]
+        num_features = all_data_tensor.shape[3]
+        print(f"Loaded tensor shape: {all_data_tensor.shape}")
+        
+        return all_data_tensor, num_features, tensor_id_dimension_size # Return tensor_id_dimension_size
     # Group by frame and create sequences
     frames_grouped = df.groupby('Frame')
 
     # Group by CSV_ID and Frame
-    grouped = df.groupby(['CSV_ID', 'Frame'])
 
     # *** Determine the required size based on the maximum ID_Norm value ***
     max_id_norm_value = df['ID_Norm'].max()
     tensor_id_dimension_size = max_id_norm_value + 1 # Add 1 because IDs are 0-based indices
-    print(f"Determined tensor ID dimension size based on max(ID_Norm): {tensor_id_dimension_size}")
+    print(f"Determined tensor ID dimension size (max_ids_per_frame): {tensor_id_dimension_size}")
 
     # Initialize list to store CSV tensors
     csv_tensors = []
@@ -131,7 +163,8 @@ def create_tensor_from_dataframe(df, transformer_max_ids_per_frame): # Keep arg 
     all_data_tensor = torch.stack(csv_tensors)  # [CSV, Sequence, ID, Features]
 
     print(f"All data tensor shape: {all_data_tensor.shape}")
-    return all_data_tensor, len(features)
+    torch.save(all_data_tensor, tensor_path)  # Save the tensor for future use
+    return all_data_tensor, len(features), tensor_id_dimension_size # Return tensor_id_dimension_size
 
 
 def create_sequences(all_data_tensor, sequence_offset = 1, sequence_length=SEQUENCE_LENGTH, prediction_length=PREDICTION_LENGTH):
@@ -167,11 +200,13 @@ class VehiclePositionDataset(data.Dataset):
         feauture_range=(0,5),
         num_features=NUM_INPUT_FEATURES,
         normalize=False,
+        max_ids_per_frame=None # Added new parameter
     ):
         try:
             self.features = features # [Num_sequences, SEQUENCE_LENGTH, ID, Features]
             self.labels = labels
             self.padding_token = padding_token
+            self.max_ids_per_frame = max_ids_per_frame # Store the value
             self.x_scaler = MinMaxScaler(feature_range=(0, 16))
             self.y_scaler = MinMaxScaler(feature_range=(0, 9))
             self.other_scaler = MinMaxScaler(feauture_range)
@@ -231,27 +266,133 @@ class VehiclePositionDataset(data.Dataset):
             # but for debugging, re-raising can help identify the issue.
             raise
 
-def create_datasets(X, Y, num_features=NUM_INPUT_FEATURES, normalize=False, save=True, save_dir='Data/', dataset_name=''):
+def create_datasets(X, Y, num_features=NUM_INPUT_FEATURES, normalize=False, save=True, save_dir='Data/', dataset_name='', max_ids_per_frame=None): # Removed success_marker_path
     """Create datasets for training and testing"""
-    
-    
     
     # Split into train and test sets
     X_Train, X_Test, Y_Train, Y_Test = train_test_split(X, Y, test_size=0.2, random_state=42)
     
     # Create datasets
-    train_dataset = VehiclePositionDataset(X_Train, Y_Train, num_features=num_features, normalize=normalize)
-    test_dataset = VehiclePositionDataset(X_Test, Y_Test, num_features=num_features, normalize=normalize)
+    train_dataset = VehiclePositionDataset(X_Train, Y_Train, num_features=num_features, normalize=normalize, max_ids_per_frame=max_ids_per_frame) # Pass to constructor
+    test_dataset = VehiclePositionDataset(X_Test, Y_Test, num_features=num_features, normalize=normalize, max_ids_per_frame=max_ids_per_frame)   # Pass to constructor
+    
     if save:    
         tld = os.path.join(save_dir, dataset_name)
-        os.makedirs(tld, exist_ok=True)
+        os.makedirs(tld, exist_ok=True) # Ensure directory exists
         train_path = os.path.join(tld, 'train.pt')
         test_path = os.path.join(tld, 'test.pt')
-        torch.save(train_dataset, train_path)   
+        
+        printer.print(f"Saving train dataset to {train_path}", Colors.BLUE)
+        torch.save(train_dataset, train_path)
+        printer.print(f"Train dataset saved to {train_path}", Colors.GREEN)
+        
+        printer.print(f"Saving test dataset to {test_path}", Colors.BLUE)
         torch.save(test_dataset, test_path)
-        print(f"Train dataset saved to {train_path}")
+        printer.print(f"Test dataset saved to {test_path}", Colors.GREEN)
+        
+        # Removed success marker creation
         
     return train_dataset, test_dataset
+
+def _clean_dataset_files(tld, train_path, test_path): # Removed success_marker_path
+    printer.print(f"Cleaning up dataset files in {tld}", Colors.YELLOW)
+    paths_to_remove = [train_path, test_path]
+    for item_path in paths_to_remove:
+        if os.path.exists(item_path):
+            try:
+                os.remove(item_path)
+                printer.print(f"Removed file {item_path}", Colors.YELLOW)
+            except OSError as e:
+                printer.print(f"Error removing file {item_path}: {e}", Colors.RED)
+
+    # Clean up the common 'data' directory within 'tld'
+    common_data_dir = os.path.join(tld, "data")
+    if os.path.isdir(common_data_dir):
+        try:
+            shutil.rmtree(common_data_dir)
+            printer.print(f"Removed directory {common_data_dir}", Colors.YELLOW)
+        except OSError as e_rmtree:
+            printer.print(f"Error removing directory {common_data_dir}: {e_rmtree}", Colors.RED)
+
+def get_datasets(
+    csv_folder='./Preprocessed_CSVs',
+    sequence_offset = 1,
+    sequence_length=SEQUENCE_LENGTH, 
+    prediction_length=PREDICTION_LENGTH,
+    padding_token=PADDING_TOKEN,
+    feauture_range=(0,5), # Typo 'feauture_range' kept as it's in original signature
+    num_features=NUM_INPUT_FEATURES,
+    normalize=False,
+    recompute=False,
+    save=True,
+    save_dir='Data/',
+    dataset_name='',
+):
+    train_set, test_set = None, None
+    tld = os.path.join(save_dir, dataset_name)
+    train_path = os.path.join(tld, 'train.pt')
+    test_path = os.path.join(tld, 'test.pt')
+    # Removed success_marker_path
+
+    if recompute:
+        printer.print(f"Recompute=True for dataset '{dataset_name}'. Cleaning up old files if any.", Colors.YELLOW)
+        _clean_dataset_files(tld, train_path, test_path)
+    else:
+        if os.path.exists(train_path) and os.path.exists(test_path):
+            printer.print(f"Attempting to load datasets from {tld}.", Colors.BLUE)
+            try:
+                train_set = torch.load(train_path)
+                test_set = torch.load(test_path)
+                
+                if not (hasattr(train_set, 'max_ids_per_frame') and train_set.max_ids_per_frame is not None and \
+                        hasattr(test_set, 'max_ids_per_frame') and test_set.max_ids_per_frame is not None):
+                    printer.print(f"Loaded dataset from {tld} appears incomplete (missing max_ids_per_frame). Will recompute.", Colors.YELLOW)
+                    train_set, test_set = None, None 
+                    _clean_dataset_files(tld, train_path, test_path) # Clean up before recompute
+                else:
+                    printer.print(f"Train dataset loaded successfully from {train_path}", Colors.GREEN)
+                    printer.print(f"Test dataset loaded successfully from {test_path}", Colors.GREEN)
+            except RuntimeError as e:
+                if "PytorchStreamReader failed locating file" in str(e) or \
+                   "Invalid argument passed to Caffe2" in str(e):
+                    printer.print(f"Error loading dataset from {tld} (likely corrupted or incomplete save - RuntimeError): {e}. Will recompute.", Colors.RED)
+                else:
+                    printer.print(f"Unhandled RuntimeError loading dataset from {tld}: {e}. Will recompute.", Colors.RED)
+                train_set, test_set = None, None
+                _clean_dataset_files(tld, train_path, test_path) # Clean up before recompute
+            except Exception as e: # Catch any other exception during loading
+                printer.print(f"Generic error loading dataset from {tld}: {type(e).__name__}: {e}. Will recompute.", Colors.RED)
+                train_set, test_set = None, None
+                _clean_dataset_files(tld, train_path, test_path) # Clean up
+        else: 
+            if not os.path.exists(train_path):
+                 printer.print(f"Train dataset not found at {train_path}.", Colors.YELLOW)
+            if not os.path.exists(test_path):
+                 printer.print(f"Test dataset not found at {test_path}.", Colors.YELLOW)
+            printer.print(f"Proceeding to compute dataset '{dataset_name}'.", Colors.BLUE)
+            # train_set, test_set remain None, triggering recomputation
+
+    if train_set is None or test_set is None: # Condition to recompute
+        printer.print(f"Recomputing dataset: {dataset_name}", Colors.BLUE)
+        
+        os.makedirs(tld, exist_ok=True)
+
+        df, _ = load_and_preprocess_data(csv_folder)
+        all_data_tensor, num_features_from_tensor, max_ids_val = create_tensor_from_dataframe(df)
+        X, Y = create_sequences(all_data_tensor, sequence_offset, sequence_length, prediction_length)
+        
+        train_set, test_set = create_datasets(
+            X, Y, 
+            num_features=num_features_from_tensor, 
+            normalize=normalize, 
+            save=save, 
+            save_dir=save_dir, 
+            dataset_name=dataset_name, 
+            max_ids_per_frame=max_ids_val
+            # Removed success_marker_path argument
+        )
+    return train_set, test_set
+
 
 def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES, train_batch_size=TRAIN_BATCH_SIZE, test_batch_size=TEST_BATCH_SIZE):
     """Create train and test dataloaders"""
