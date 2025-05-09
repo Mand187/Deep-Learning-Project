@@ -377,7 +377,8 @@ print(f"Expected: {Y.shape}")
 # ===============================================================================================================
 #                                                   Load Model
 # ===============================================================================================================
-# model = torch.load('Saved_Models/20_Epoch_CIFAR.pt')
+# model = torch.load('Saved_Models/best_model.pt')
+model.load_state_dict(torch.load('Saved_Models/best_model.pth'))
 # %% 
 # ===============================================================================================================
 #                                                    Training
@@ -386,6 +387,8 @@ interrupted = False
 
 def signal_handler(sig, frame):
     global interrupted
+    if interrupted:  # If already interrupted, do normal interrupt
+        raise KeyboardInterrupt
     interrupted = True
     print("Interrupt received. Flag set...")
 
@@ -432,6 +435,9 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
     batch_start_time = time.time()
     
     for i, (X_train_batch, Y_train_batch) in enumerate(train_prefetcher):
+        
+        if interrupted: break
+        
         X_train_batch:torch.Tensor = X_train_batch.to(DEVICE, non_blocking=True)
         Y_train_batch:torch.Tensor = Y_train_batch.to(DEVICE, non_blocking=True)
         
@@ -464,6 +470,9 @@ while not interrupted and ((epochIterator < EPOCHS or EPOCHS == -1) or trainEpoc
         batch_start_time = time.time()
         
         for i, (X_test_batch, Y_test_batch) in enumerate(test_prefetcher):
+        
+            if interrupted: break
+        
             X_test_batch:torch.Tensor = X_test_batch.to(DEVICE, non_blocking=True)
             Y_test_batch:torch.Tensor = Y_test_batch.to(DEVICE, non_blocking=True)
         
