@@ -7,180 +7,160 @@ import torch.multiprocessing as mp # Use torch.multiprocessing
 from torch.utils.data import TensorDataset, DataLoader
 from torchtnt.utils.data import CudaDataPrefetcher
 from Training.jutils import ColorPrinter, Colors, wandb_login
-from Data.data_loading_jaskin import load_and_preprocess_data, create_tensor_from_dataframe, create_sequences, VehiclePositionDataset # Removed create_dataloaders from here
+from Data.data_loading_jaskin import load_and_preprocess_data, create_tensor_from_dataframe, create_sequences, VehiclePositionDataset
 from Training.train_matt import Trainer
 from NextNet.model_split import FrameTransformer
 from Training.customLoss import ADELoss, FDELoss, RMSELoss, PaddedMSELoss
 from datetime import datetime
-import time # Added time import
+import time
 
 printer = ColorPrinter()
 
-# Removed TaskTuple class
-
 # Function to be executed by each worker process
 def worker_function(
-    model_name,
+    run_id, # W&B run ID to resume
+    assigned_gpu_id, # GPU assigned to this worker
     X_train_data, # Actual tensor
     Y_train_data, # Actual tensor
     X_test_data,  # Actual tensor
-    Y_test_data,  # Actual tensor
-    num_features, # Needed for DataLoader creation (though not directly used if features are part of X_train_data)
-    prediction_length,
-    num_ids,
-    sequence_length,
-    save_model_dir,
-    model_kwargs,
-    loss_fn_class_name,
-    loss_fn_reduction,
-    common_loss_fn_class_name,
-    common_loss_fn_reduction,
-    learning_rate,
-    num_epochs,
-    gpu_id,
-    optimizer_kwargs,
-    wandb_project_name,
-    wandb_group_name,
-    cfg_num_workers,
-    cfg_train_batch_size,
-    cfg_test_batch_size,
-    cfg_pin_memory,
-    cfg_num_input_features
+    Y_test_data   # Actual tensor
 ):
     run = None
+    model_name_for_print = "Worker" # Fallback name for printer
     try:
         # 1. Setup device
-        device = torch.device(f"cuda:{gpu_id}") # PyTorch will see the assigned GPU as cuda:0
-        printer.print(f"[{model_name} GPU:{gpu_id}] Worker started. Using device: {str(device)}", Colors.CYAN)
+        device = torch.device(f"cuda:{assigned_gpu_id}")
+        # Initialize W&B run first to get config for printer and other settings
+        # Resume the run initialized by the main process
+        run = wandb.init(id=run_id, resume="must")
+        if not run:
+            printer.print(f"[GPU:{assigned_gpu_id}] Failed to resume W&B run with ID: {run_id}", Colors.RED)
+            return # Cannot proceed without W&B config
 
-        # 2. W&B Init
-        try:
-            run = wandb.init(
-                project=wandb_project_name,
-                group=wandb_group_name,
-                name=f"{model_name}-gpu{gpu_id}-{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}", # Unique name
-                config={
-                    "model_name": model_name, "learning_rate": learning_rate, "num_epochs": num_epochs,
-                    "gpu_id": gpu_id, "prediction_length": prediction_length, "num_ids": num_ids,
-                    "sequence_length": sequence_length, "batch_size": cfg_train_batch_size, "num_workers": cfg_num_workers,
-                    **model_kwargs, **optimizer_kwargs,
-                    "loss_function": loss_fn_class_name, "common_loss_function": common_loss_fn_class_name
-                },
-                reinit='create_new'
-            )
-            printer.print(f"[{model_name} GPU:{gpu_id}] W&B run initialized: {run.name}", Colors.BLUE)
-        except Exception as e:
-            printer.print(f"[{model_name} GPU:{gpu_id}] Failed to initialize W&B: {e}", Colors.RED)
-            run = None
+        # Now that run is resumed, wandb.config is populated
+        cfg_wandb = wandb.config
+        model_name_for_print = cfg_wandb.model_name
 
-        # 3. Create DataLoaders and Prefetchers
+        printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] Worker started. Resumed W&B run: {run.name}. Using device: {str(device)}", Colors.CYAN)
+
+        # 2. Create DataLoaders and Prefetchers
         train_dataset = VehiclePositionDataset(
-            X_train_data, 
-            Y_train_data, 
-            num_features=num_features,
+            X_train_data,
+            Y_train_data,
+            num_features=cfg_wandb.num_features,
         )
         test_dataset = VehiclePositionDataset(
             X_test_data,
             Y_test_data,
-            num_features=num_features,
+            num_features=cfg_wandb.num_features,
         )
 
         train_loader = DataLoader(
-            train_dataset, 
-            batch_size=cfg_train_batch_size, 
-            prefetch_factor=cfg.NUM_TRAIN_BATCHES_TO_PREFETCH,
-            shuffle=True, 
-            num_workers=cfg.NUM_WORKERS * 2 // 3, 
-            pin_memory=cfg_pin_memory, 
-            persistent_workers=True if cfg_num_workers > 0 else False
+            train_dataset,
+            batch_size=cfg_wandb.cfg_train_batch_size,
+            prefetch_factor=cfg_wandb.cfg_num_train_batches_to_prefetch,
+            shuffle=True,
+            num_workers=cfg_wandb.cfg_num_workers * 2 // 3 if cfg_wandb.cfg_num_workers > 0 else 0,
+            pin_memory=cfg_wandb.cfg_pin_memory,
+            persistent_workers=True if cfg_wandb.cfg_num_workers > 0 else False
         )
         test_loader = DataLoader(
             test_dataset,
-            batch_size=cfg_test_batch_size, 
-            prefetch_factor=cfg.NUM_TEST_BATCHES_TO_PREFETCH,
+            batch_size=cfg_wandb.cfg_test_batch_size,
+            prefetch_factor=cfg_wandb.cfg_num_test_batches_to_prefetch,
             shuffle=False,
-            num_workers=cfg.NUM_WORKERS // 3,
-            pin_memory=cfg_pin_memory,
-            persistent_workers=True if cfg_num_workers > 0 else False
+            num_workers=cfg_wandb.cfg_num_workers // 3 if cfg_wandb.cfg_num_workers > 0 else 0,
+            pin_memory=cfg_wandb.cfg_pin_memory,
+            persistent_workers=True if cfg_wandb.cfg_num_workers > 0 else False
         )
-        
-        printer.print(f"[{model_name} GPU:{gpu_id}] DataLoaders created with {cfg_num_workers} workers.", Colors.GREEN)
+
+        printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] DataLoaders created with {cfg_wandb.cfg_num_workers} workers.", Colors.GREEN)
 
         train_prefetcher = CudaDataPrefetcher(
             train_loader,
             device,
-            num_prefetch_batches=cfg.NUM_TRAIN_BATCHES_TO_PREFETCH,
+            num_prefetch_batches=cfg_wandb.cfg_num_train_batches_to_prefetch,
         )
         test_prefetcher = CudaDataPrefetcher(
             test_loader,
             device,
-            num_prefetch_batches=cfg.NUM_TEST_BATCHES_TO_PREFETCH,
+            num_prefetch_batches=cfg_wandb.cfg_num_test_batches_to_prefetch,
         )
-        printer.print(f"[{model_name} GPU:{gpu_id}] CudaDataPrefetchers created.", Colors.GREEN)
+        printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] CudaDataPrefetchers created.", Colors.GREEN)
 
-        # 4. Instantiate Loss Functions
+        # 3. Instantiate Loss Functions
         loss_fn_map = {"ADELoss": ADELoss, "FDELoss": FDELoss, "RMSELoss": RMSELoss, "PaddedMSELoss": PaddedMSELoss}
-        selected_loss_fn = loss_fn_map[loss_fn_class_name](reduction=loss_fn_reduction)
-        selected_common_loss_fn = loss_fn_map[common_loss_fn_class_name](reduction=common_loss_fn_reduction)
-        printer.print(f"[{model_name} GPU:{gpu_id}] Loss functions instantiated.", Colors.GREEN)
+        selected_loss_fn = loss_fn_map[cfg_wandb.loss_fn_class_name](reduction=cfg_wandb.loss_fn_reduction)
+        selected_common_loss_fn = loss_fn_map[cfg_wandb.common_loss_fn_class_name](reduction=cfg_wandb.common_loss_fn_reduction)
+        printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] Loss functions instantiated.", Colors.GREEN)
 
-        # 5. Instantiate Model
+        # 4. Instantiate Model
+        # model_kwargs from wandb.config might be a wandb.sdk.lib.config.ConfigDict, convert to dict if necessary
+        model_kwargs_dict = dict(cfg_wandb.model_kwargs) if hasattr(cfg_wandb.model_kwargs, 'items') else {}
+
         model = FrameTransformer(
-            input_feature_size=cfg_num_input_features,
-            num_ids=num_ids,
-            sequence_length=sequence_length,
-            prediction_length=prediction_length,
-            **model_kwargs
+            input_feature_size=cfg_wandb.cfg_num_input_features,
+            num_ids=cfg_wandb.num_ids,
+            sequence_length=cfg_wandb.sequence_length,
+            prediction_length=cfg_wandb.prediction_length,
+            **model_kwargs_dict
         ).to(device)
-        printer.print(f"[{model_name} GPU:{gpu_id}] Model FrameTransformer instantiated on {device}.", Colors.GREEN)
+        printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] Model FrameTransformer instantiated on {device}. Params: {sum(p.numel() for p in model.parameters())}", Colors.GREEN)
 
-        # 6. Instantiate Trainer
+
+        # 5. Instantiate Trainer
         trainScript = Trainer(
             model,
             train_prefetcher,
             test_prefetcher,
-            save_path=save_model_dir,
-            model_name=model_name,
+            save_path=cfg_wandb.save_model_dir,
+            model_name=cfg_wandb.model_name, # Trainer uses this for print statements and file paths
             device=device,
-            wandb_run=run
+            wandb_run=run # Pass the resumed run object to Trainer
         )
-        trainScript.earlyStop(enable=True, patience=cfg.EARLY_STOPPING_PATIENCE, delta=cfg.EARLY_STOPPING_DELTA)
-        printer.print(f"[{model_name} GPU:{gpu_id}] Trainer initialized.", Colors.GREEN)
+        trainScript.earlyStop(
+            enable=True,
+            patience=cfg_wandb.cfg_early_stopping_patience,
+            delta=cfg_wandb.cfg_early_stopping_delta
+        )
+        printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] Trainer initialized.", Colors.GREEN)
 
-        # 7. Train
-        printer.print(f"[{model_name} GPU:{gpu_id}] Starting training for {num_epochs} epochs...", Colors.BLUE)
+        # 6. Train
+        printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] Starting training for {cfg_wandb.num_epochs} epochs...", Colors.BLUE)
+        # optimizer_kwargs from wandb.config might be a wandb.sdk.lib.config.ConfigDict
+        optimizer_kwargs_dict = dict(cfg_wandb.optimizer_kwargs) if hasattr(cfg_wandb.optimizer_kwargs, 'items') else {}
         results_tuple = trainScript.train(
-            num_epochs=num_epochs,
-            learningRate=learning_rate,
+            num_epochs=cfg_wandb.num_epochs,
+            learningRate=cfg_wandb.learning_rate,
             criterion=selected_loss_fn,
-            optimizer=torch.optim.AdamW(model.parameters(), lr=learning_rate, **optimizer_kwargs),
+            optimizer=torch.optim.AdamW(model.parameters(), lr=cfg_wandb.learning_rate, **optimizer_kwargs_dict),
             common_loss_fn=selected_common_loss_fn
         )
-        printer.print(f"[{model_name} GPU:{gpu_id}] Training completed. Results: {results_tuple}", Colors.GREEN)
+        printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] Training completed. Results: {results_tuple}", Colors.GREEN)
 
     except Exception as e:
-        printer.print(f"ERROR in worker_function for {model_name} on GPU {gpu_id}: {type(e).__name__}: {e}", Colors.RED)
+        error_context = f"ERROR in worker_function for {model_name_for_print} (Run ID: {run_id}) on GPU {assigned_gpu_id}"
+        printer.print(f"{error_context}: {type(e).__name__}: {e}", Colors.RED)
         error_traceback = traceback.format_exc()
         printer.print(error_traceback, Colors.RED)
-        if run:
-            run.log({"error": str(e), "traceback": error_traceback})
-            run.finish(exit_code=1) # Finish with error code
-        # Re-raise so main process join() can potentially detect non-zero exit if needed,
-        # though direct exception passing across Process is not straightforward without Queues.
-        # For now, logging is the primary error reporting.
-        # raise # Avoid re-raising directly as it might terminate the main script if not handled by mp.Process
+        if run: # Log error to W&B if run was initialized
+            run.log({"error_type": type(e).__name__, "error_message": str(e), "traceback": error_traceback})
+            run.finish(exit_code=1, quiet=True) # Finish with error code
+        # No re-raise, allow process to terminate. Main process will see exit code.
     finally:
-        if run and run._exit_code is None: # Only finish if not already finished with an error
-            run.finish()
-            printer.print(f"[{model_name} GPU:{gpu_id}] W&B run finished successfully.", Colors.BLUE)
-        printer.print(f"[{model_name} GPU:{gpu_id}] Worker finished.", Colors.CYAN)
+        if run and run._exit_code is None: # Only finish if not already finished (e.g. by an error)
+            run.finish(quiet=True) # Default exit_code is 0
+            printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] W&B run {run.name} finished successfully.", Colors.BLUE)
+        elif not run:
+             printer.print(f"[GPU:{assigned_gpu_id}] Worker finished, W&B run was not properly initialized/resumed for Run ID: {run_id}.", Colors.YELLOW)
+        printer.print(f"[{model_name_for_print} GPU:{assigned_gpu_id}] Worker finished.", Colors.CYAN)
 
 
 def main():
     try:
         wandb_login() # Call W&B login once in the main process
     except Exception as e:
-        printer.print(f"W&B login failed: {e}. Proceeding without W&B.", Colors.RED)
+        printer.print(f"W&B login failed: {e}. Proceeding without W&B (if possible).", Colors.RED)
 
     wandb_project_name = "Deep-Learning-Project-Refactor"
     wandb_group_name = f"parallel_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -191,12 +171,11 @@ def main():
     
     printer.print(f"Initializing data loading...", Colors.CYAN)
     df, transformer_max_ids_per_frame = load_and_preprocess_data(csv_folder=csv_dir)
-    all_data_tensor, num_features = create_tensor_from_dataframe(df, transformer_max_ids_per_frame)
-    printer.print(f"Data loaded. All data tensor shape: {all_data_tensor.shape}, Num features: {num_features}", Colors.GREEN)
+    all_data_tensor, num_features_global = create_tensor_from_dataframe(df, transformer_max_ids_per_frame) # Renamed to avoid conflict
+    printer.print(f"Data loaded. All data tensor shape: {all_data_tensor.shape}, Num features: {num_features_global}", Colors.GREEN)
 
-    # Create all data variants in the main process
     data_store = {}
-    prediction_lengths_secs = [1, 2, 3, 4] # Example prediction lengths in seconds
+    prediction_lengths_secs = [1, 2, 3, 4]
     for secs in prediction_lengths_secs:
         pred_len_frames = 30 * secs
         X_data, Y_data = create_sequences(all_data_tensor, prediction_length=pred_len_frames)
@@ -204,12 +183,10 @@ def main():
         data_store[f"Y_{secs}s"] = Y_data
         printer.print(f"Created sequences for {secs}s: X shape {X_data.shape}, Y shape {Y_data.shape}", Colors.BLUE)
 
-    # Define task configurations
-    task_configs = []
+    task_configs_params = [] # Store dicts that will form the basis of wandb.config
     model_types = [
         {"name": "rmse_model", "loss": "RMSELoss", "common_loss": "ADELoss"},
-        {"name": "ade_model", "loss": "ADELoss", "common_loss": "RMSELoss"}, # Example, adjust as needed
-        # Add other model types if necessary
+        {"name": "ade_model", "loss": "ADELoss", "common_loss": "RMSELoss"},
     ]
 
     for model_type_info in model_types:
@@ -224,16 +201,15 @@ def main():
 
             current_X_data = data_store[X_key]
 
-            task_configs.append({
+            # Parameters that will go into wandb.config
+            params_for_config = {
                 "model_name": model_name,
-                "X_train_data_key": X_key,
-                "Y_train_data_key": Y_key,
-                "X_test_data_key": X_key, # Using same data for train/test split, adjust if you have separate test tensors
-                "Y_test_data_key": Y_key,
-                "num_features": num_features,
+                "X_data_key": X_key, # For traceability, not direct use by worker from config
+                "Y_data_key": Y_key, # For traceability
+                "num_features": num_features_global, # From global data loading
                 "prediction_length": 30 * secs,
                 "num_ids": transformer_max_ids_per_frame,
-                "sequence_length": current_X_data.size(1), # Get from actual tensor
+                "sequence_length": current_X_data.size(1),
                 "save_model_dir": os.path.join(root_dir, 'Model', 'Saved_Model_Refactor'),
                 "model_kwargs": {'hidden_size': cfg.HIDDEN_SIZE, 'num_heads': cfg.NUM_HEADS, 'dropout_rate': cfg.DROPOUT_RATE},
                 "loss_fn_class_name": model_type_info["loss"],
@@ -241,14 +217,20 @@ def main():
                 "common_loss_fn_class_name": model_type_info["common_loss"],
                 "common_loss_fn_reduction": "mean",
                 "learning_rate": cfg.LEARNING_RATE,
-                "num_epochs": cfg.EPOCHS, # Use from config
-                "optimizer_kwargs": {}, # Add if any specific optimizer kwargs are needed
+                "num_epochs": cfg.EPOCHS,
+                "optimizer_kwargs": {},
                 "cfg_num_workers": cfg.NUM_WORKERS,
-                "cfg_train_batch_size": cfg.TRAIN_BATCH_SIZE, # Explicitly name for clarity
-                "cfg_test_batch_size": cfg.TEST_BATCH_SIZE,   # Add test batch size
+                "cfg_train_batch_size": cfg.TRAIN_BATCH_SIZE,
+                "cfg_test_batch_size": cfg.TEST_BATCH_SIZE,
                 "cfg_pin_memory": cfg.PIN_MEMORY,
-                "cfg_num_input_features": cfg.NUM_INPUT_FEATURES
-            })
+                "cfg_num_input_features": cfg.NUM_INPUT_FEATURES, # This is num_features_global
+                # Add other cfg values needed by worker
+                "cfg_num_train_batches_to_prefetch": cfg.NUM_TRAIN_BATCHES_TO_PREFETCH,
+                "cfg_num_test_batches_to_prefetch": cfg.NUM_TEST_BATCHES_TO_PREFETCH,
+                "cfg_early_stopping_patience": cfg.EARLY_STOPPING_PATIENCE,
+                "cfg_early_stopping_delta": cfg.EARLY_STOPPING_DELTA,
+            }
+            task_configs_params.append(params_for_config)
 
     num_gpus_available = torch.cuda.device_count()
     num_gpus_to_use = min(cfg.NUM_GPUS_TO_USE, num_gpus_available)
@@ -257,7 +239,6 @@ def main():
         return
     printer.print(f"Number of GPUs to use: {num_gpus_to_use}", Colors.CYAN)
 
-    # --- Multiprocessing Setup ---
     try:
         if mp.get_start_method(allow_none=True) != 'spawn':
             mp.set_start_method('spawn', force=True)
@@ -267,92 +248,89 @@ def main():
     except RuntimeError as e:
         printer.print(f"Warning: Could not set start method to 'spawn': {e}. Current method: {mp.get_start_method(allow_none=True)}.", Colors.YELLOW)
 
-    if not task_configs:
+    if not task_configs_params:
         printer.print("No tasks configured to run. Exiting.", Colors.RED)
         return
 
-    active_processes_info = []  # Stores {'process': p, 'gpu_id': gpu_id, 'task_name': name}
-    task_queue_indices = list(range(len(task_configs)))
+    active_processes_info = []
+    task_queue_indices = list(range(len(task_configs_params)))
     available_gpu_ids = list(range(num_gpus_to_use))
     completed_task_count = 0
 
-    printer.print(f"Starting training for {len(task_configs)} tasks using {num_gpus_to_use} GPUs.", Colors.CYAN)
+    printer.print(f"Starting training for {len(task_configs_params)} tasks using {num_gpus_to_use} GPUs.", Colors.CYAN)
 
-    while completed_task_count < len(task_configs):
-        # Try to launch new processes if GPUs are available and tasks are waiting
+    while completed_task_count < len(task_configs_params):
         while available_gpu_ids and task_queue_indices:
             gpu_id_to_use = available_gpu_ids.pop(0)
             current_task_idx = task_queue_indices.pop(0)
-            task_conf = task_configs[current_task_idx]
+            
+            # This dictionary contains all parameters for the worker, to be set in wandb.config
+            current_task_wandb_config = task_configs_params[current_task_idx].copy()
+            current_task_wandb_config["assigned_gpu_id"] = gpu_id_to_use # Worker needs to know its assigned GPU
+            current_task_wandb_config["wandb_project_name"] = wandb_project_name # For reference in config
+            current_task_wandb_config["wandb_group_name"] = wandb_group_name   # For reference in config
 
+            run_id = wandb.util.generate_id()
+            run_name = f"{current_task_wandb_config['model_name']}-gpu{gpu_id_to_use}-{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+
+            # Pre-initialize W&B run in the main process to set config
+            temp_run = wandb.init(
+                project=wandb_project_name,
+                group=wandb_group_name,
+                name=run_name,
+                id=run_id,
+                config=current_task_wandb_config,
+                reinit=True, # Important for loop
+                settings=wandb.Settings(start_method="thread") # Avoids issues with multiple inits
+            )
+            if temp_run:
+                temp_run.finish() # Finish immediately, config is now set for this run_id
+                printer.print(f"Pre-initialized W&B run {run_name} (ID: {run_id}) for task {current_task_wandb_config['model_name']} on GPU {gpu_id_to_use}", Colors.MAGENTA)
+            else:
+                printer.print(f"Failed to pre-initialize W&B run for task {current_task_wandb_config['model_name']}", Colors.RED)
+                # Decide how to handle: skip task, retry, or exit? For now, will attempt to proceed.
+                # The worker's resume="must" will fail if pre-init failed.
+
+            # Arguments for the worker process
             args_for_worker = (
-                task_conf["model_name"],
-                data_store[task_conf["X_train_data_key"]],
-                data_store[task_conf["Y_train_data_key"]],
-                data_store[task_conf["X_test_data_key"]],
-                data_store[task_conf["Y_test_data_key"]],
-                task_conf["num_features"],
-                task_conf["prediction_length"],
-                task_conf["num_ids"],
-                task_conf["sequence_length"],
-                task_conf["save_model_dir"],
-                task_conf["model_kwargs"],
-                task_conf["loss_fn_class_name"],
-                task_conf["loss_fn_reduction"],
-                task_conf["common_loss_fn_class_name"],
-                task_conf["common_loss_fn_reduction"],
-                task_conf["learning_rate"],
-                task_conf["num_epochs"],
-                gpu_id_to_use, # Actual physical GPU index to use
-                task_conf["optimizer_kwargs"],
-                wandb_project_name,
-                wandb_group_name,
-                task_conf["cfg_num_workers"],
-                task_conf["cfg_train_batch_size"],
-                task_conf["cfg_test_batch_size"],
-                task_conf["cfg_pin_memory"],
-                task_conf["cfg_num_input_features"]
+                run_id,
+                gpu_id_to_use,
+                data_store[current_task_wandb_config["X_data_key"]],
+                data_store[current_task_wandb_config["Y_data_key"]],
+                data_store[current_task_wandb_config["X_data_key"]], # Assuming X_test_data_key is same as X_train_data_key
+                data_store[current_task_wandb_config["Y_data_key"]], # Assuming Y_test_data_key is same as Y_train_data_key
             )
 
-            printer.print(f"Preparing to start task {task_conf['model_name']} on GPU {gpu_id_to_use}", Colors.BLUE)
+            printer.print(f"Preparing to start task {current_task_wandb_config['model_name']} (Run ID: {run_id}) on GPU {gpu_id_to_use}", Colors.BLUE)
             p = mp.Process(target=worker_function, args=args_for_worker)
             p.start()
             active_processes_info.append({
-                'process': p, 
-                'gpu_id': gpu_id_to_use, 
-                'task_name': task_conf['model_name'],
-                'pid': p.pid
+                'process': p,
+                'gpu_id': gpu_id_to_use,
+                'task_name': current_task_wandb_config['model_name'],
+                'pid': p.pid,
+                'run_id': run_id
             })
-            printer.print(f"Started task {task_conf['model_name']} on GPU {gpu_id_to_use} (Process PID: {p.pid})", Colors.GREEN)
+            printer.print(f"Started task {current_task_wandb_config['model_name']} (PID: {p.pid}, Run ID: {run_id}) on GPU {gpu_id_to_use}", Colors.GREEN)
 
-        # Check for completed processes
         next_active_processes_info = []
         for proc_info in active_processes_info:
             p = proc_info['process']
-            gpu_id = proc_info['gpu_id']
-            task_name = proc_info['task_name']
-            pid = proc_info['pid']
-
-            if not p.is_alive(): # Check if process has terminated
-                # p.join() # Ensure it's properly joined to get exit code and clean up resources
-                exitcode = p.exitcode # Get exitcode after checking is_alive and before join (join might block if called too early)
-                p.join() # Now join to clean up
-                printer.print(f"Process for task {task_name} (PID: {pid}) on GPU {gpu_id} finished. Exit code: {exitcode}", Colors.GREEN if exitcode == 0 else Colors.YELLOW)
-                available_gpu_ids.append(gpu_id)  # Free up the GPU
+            if not p.is_alive():
+                exitcode = p.exitcode
+                p.join() # Clean up
+                printer.print(f"Process for task {proc_info['task_name']} (PID: {proc_info['pid']}, Run ID: {proc_info['run_id']}) on GPU {proc_info['gpu_id']} finished. Exit code: {exitcode}", Colors.GREEN if exitcode == 0 else Colors.YELLOW)
+                available_gpu_ids.append(proc_info['gpu_id'])
                 completed_task_count += 1
             else:
-                next_active_processes_info.append(proc_info)  # Keep it in the list of active processes
+                next_active_processes_info.append(proc_info)
         active_processes_info = next_active_processes_info
 
-        if completed_task_count == len(task_configs):
-            break # All tasks done
+        if completed_task_count == len(task_configs_params):
+            break
+        time.sleep(1)
 
-        time.sleep(1)  # Sleep for a short duration to avoid busy waiting
-
-    printer.print(f"All {len(task_configs)} training tasks completed.", Colors.BOLD_GREEN)
+    printer.print(f"All {len(task_configs_params)} training tasks completed.", Colors.BOLD_GREEN)
 
 if __name__ == '__main__':
-    # Ensure the script can be imported without automatically running main()
-    # This is good practice for multiprocessing with 'spawn' start method
-    # as child processes might re-import the main module.
     main()
