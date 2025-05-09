@@ -12,3 +12,4 @@ runs/
 *.csv
 *.pth
 *.key
+wandb/

@@ -159,7 +159,15 @@ def create_sequences(all_data_tensor, sequence_offset = 1, sequence_length=SEQUE
 
 
 class VehiclePositionDataset(data.Dataset):
-    def __init__(self, features, labels, padding_token=PADDING_TOKEN, feauture_range=(0,5), num_features=NUM_INPUT_FEATURES):
+    def __init__(
+        self,
+        features,
+        labels,
+        padding_token=PADDING_TOKEN,
+        feauture_range=(0,5),
+        num_features=NUM_INPUT_FEATURES,
+        normalize=False,
+    ):
         try:
             self.features = features # [Num_sequences, SEQUENCE_LENGTH, ID, Features]
             self.labels = labels
@@ -167,7 +175,9 @@ class VehiclePositionDataset(data.Dataset):
             self.x_scaler = MinMaxScaler(feature_range=(0, 16))
             self.y_scaler = MinMaxScaler(feature_range=(0, 9))
             self.other_scaler = MinMaxScaler(feauture_range)
-            
+            if not normalize:
+                print(f"Normalization skipped for features and labels")
+                return
             # Ensure features is a CPU tensor before attempting to reshape and convert to numpy
             features_cpu = features.cpu()
             
@@ -222,7 +232,7 @@ class VehiclePositionDataset(data.Dataset):
             raise
 
 
-def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES, train_batch_size=BATCH_SIZE, test_batch_size=TEST_BATCH_SIZE):
+def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES, train_batch_size=TRAIN_BATCH_SIZE, test_batch_size=TEST_BATCH_SIZE):
     """Create train and test dataloaders"""
     # Split data into train and test sets
     X_Train, X_Test, Y_Train, Y_Test = train_test_split(X, Y, test_size=0.2, random_state=42)

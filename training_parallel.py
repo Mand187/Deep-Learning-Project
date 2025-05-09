@@ -1,4 +1,5 @@
 import config as cfg
+import datetime
 import wandb
 import traceback
 import os
@@ -98,11 +99,10 @@ def train_model(
     num_epochs,
     gpu_id,
     optimizer_kwargs,
-    wandb_run
 ):
     try:
         
-        
+        wandb_run = create_wandb_run(config=locals())
         # Explicitly initialize CUDA for this process
         # This might help with NVML issues in spawned processes
         if torch.cuda.is_available():
@@ -202,11 +202,12 @@ def create_wandb_run(
     wandb_run = wandb.init(
         project="NextNet",
         name=config['model_name'],
-        id = config['model_name'],
+        id = f"{config['model_name']}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}",
         resume="allow",
         #sync_tensorboard=True,
         dir=wandb_dir,
-        config=config
+        config=config,
+        reinit='finish_previous',
     )
     wandb_run.define_metric("train/loss", summary="min", )
     wandb_run.define_metric("val/loss", summary="min", )
@@ -389,10 +390,9 @@ def main():
                     # The detailed traceback should have been printed by the child process thanks to the try-except in train_model.
                 else:
                     printer.print(f"CALLBACK: Training for {name} completed on GPU {gpu}. Result: {type(result_or_exc)}", Colors.GREEN)
-            wandb_run = create_wandb_run(config=task.__dict__())
             res = pool.apply_async(
                 train_model,
-                args=(*task.get_tuple(), wandb_run),  # Unpack the tuple to pass as arguments
+                args=task.get_tuple(),  # Unpack the tuple to pass as arguments
                 callback=lambda r, name=model_name_for_callback, gpu=gpu_id_for_task: callback_fn(r, name, gpu)
             )
             results_async.append(res)

@@ -7,9 +7,16 @@ from config import *
 
 debug = False
 class FrameTransformer(nn.Module):
-    def __init__(self, input_feature_size=NUM_INPUT_FEATURES, num_ids=None, sequence_length=SEQUENCE_LENGTH, 
-                 prediction_length=PREDICTION_LENGTH, hidden_size=HIDDEN_SIZE, num_heads=NUM_HEADS, 
-                 dropout_rate=DROPOUT_RATE):
+    def __init__(
+        self,
+        input_feature_size=NUM_INPUT_FEATURES,
+        num_ids=None,
+        sequence_length=SEQUENCE_LENGTH, 
+        prediction_length=PREDICTION_LENGTH,
+        hidden_size=HIDDEN_SIZE,
+        num_heads=NUM_HEADS, 
+        dropout_rate=DROPOUT_RATE
+    ):
         super().__init__()
         if debug:
             print(f"[FrameTransformer __init__] hidden_size={hidden_size}, num_ids={num_ids}, num_heads={num_heads}") # Debug print

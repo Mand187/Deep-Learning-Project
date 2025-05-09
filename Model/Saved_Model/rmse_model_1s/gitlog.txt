@@ -1,0 +1,58 @@
+On branch parallel_refactor
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   .gitignore
+	modified:   Model/Saved_Model/rmse_model_2s/history.json
+	modified:   Model/Saved_Model/wandb/wandb/debug-internal.log
+	modified:   Model/Saved_Model/wandb/wandb/debug.log
+	modified:   Model/Saved_Model/wandb/wandb/latest-run
+	modified:   Training/train_matt.py
+	modified:   config.py
+	modified:   rmse_model_1s_losses.png
+	modified:   training_parallel.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	Model/Saved_Model/rmse_model_1s/gitlog.txt
+	Model/Saved_Model/rmse_model_2s/gitlog.txt
+	Model/Saved_Model/rmse_model_3s/gitlog.txt
+	Model/Saved_Model/rmse_model_4s/gitlog.txt
+	rmse_model_2s_losses.png
+	rmse_model_3s_losses.png
+	rmse_model_4s_losses.png
+	training_parllel_revamp.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
+On branch parallel_refactor
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   .gitignore
+	modified:   Model/Saved_Model/rmse_model_1s/history.json
+	modified:   Model/Saved_Model/wandb/wandb/debug-internal.log
+	modified:   Model/Saved_Model/wandb/wandb/debug.log
+	modified:   Model/Saved_Model/wandb/wandb/latest-run
+	modified:   Training/train_matt.py
+	modified:   config.py
+	modified:   rmse_model_1s_losses.png
+	modified:   training_parallel.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	Model/Saved_Model/rmse_model_1s/gitlog.txt
+	Model/Saved_Model/rmse_model_2s/gitlog.txt
+	Model/Saved_Model/rmse_model_3s/gitlog.txt
+	Model/Saved_Model/rmse_model_4s/gitlog.txt
+	rmse_model_2s_losses.png
+	rmse_model_3s_losses.png
+	rmse_model_4s_losses.png
+	training_parllel_revamp.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
+[parallel_refactor ee0845d] Updated history for rmse_model_1s at epoch 3
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+[parallel_refactor f3548e5] Updated history for rmse_model_1s at epoch 4
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+[parallel_refactor 2314a92] Updated history for rmse_model_1s at epoch 5
+ 1 file changed, 8 insertions(+), 4 deletions(-)

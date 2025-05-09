@@ -1,0 +1,13 @@
+[parallel_refactor 25326dd] Updated history for rmse_model_3s at epoch 1
+ 2 files changed, 18 insertions(+), 30 deletions(-)
+ rewrite Model/Saved_Model/rmse_model_3s/history.json (73%)
+[parallel_refactor 3bab698] Updated history for rmse_model_3s at epoch 2
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+[parallel_refactor 8434ad4] Updated history for rmse_model_3s at epoch 3
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+[parallel_refactor 200beca] Updated history for rmse_model_3s at epoch 4
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+[parallel_refactor e22d5bd] Updated history for rmse_model_3s at epoch 5
+ 2 files changed, 16 insertions(+), 8 deletions(-)
+[parallel_refactor 34cc6eb] Updated history for rmse_model_3s at epoch 6
+ 1 file changed, 8 insertions(+), 4 deletions(-)

@@ -1,0 +1,36 @@
+[parallel_refactor 9f680d2] Updated history for rmse_model_4s at epoch 1
+ 1 file changed, 14 insertions(+), 22 deletions(-)
+ rewrite Model/Saved_Model/rmse_model_4s/history.json (73%)
+[parallel_refactor 3114d9e] Updated history for rmse_model_4s at epoch 2
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+[parallel_refactor 40a9117] Updated history for rmse_model_4s at epoch 3
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+[parallel_refactor 7e54481] Updated history for rmse_model_4s at epoch 4
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+On branch parallel_refactor
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   .gitignore
+	modified:   Model/Saved_Model/wandb/wandb/debug-internal.log
+	modified:   Model/Saved_Model/wandb/wandb/debug.log
+	modified:   Model/Saved_Model/wandb/wandb/latest-run
+	modified:   Training/train_matt.py
+	modified:   config.py
+	modified:   rmse_model_1s_losses.png
+	modified:   training_parallel.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	Model/Saved_Model/rmse_model_1s/gitlog.txt
+	Model/Saved_Model/rmse_model_2s/gitlog.txt
+	Model/Saved_Model/rmse_model_3s/gitlog.txt
+	Model/Saved_Model/rmse_model_4s/gitlog.txt
+	rmse_model_2s_losses.png
+	rmse_model_3s_losses.png
+	rmse_model_4s_losses.png
+	training_parllel_revamp.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
+[parallel_refactor 6bf46ba] Updated history for rmse_model_4s at epoch 6
+ 1 file changed, 8 insertions(+), 4 deletions(-)

@@ -78,7 +78,7 @@ class Trainer:
         self.train_losses = []
         self.val_losses = []
         self.val_common_losses = []
-        self.train_common_losses = 0
+        self.train_common_losses = []
 
     def earlyStop(self, enable=True, patience=10, delta=0.0):
         self.use_early_stopping = enable
@@ -192,8 +192,8 @@ class Trainer:
                         patience_counter = 0
                         self.printer.print(f"{self.model_name}: Best Loss at epoch {epoch}: {best_val_loss:.4f}")
                         self.pool.submit(self.save_model)
-                        self.pool.submit(self.save_history)
-                        self.pool.submit(self.push_history, epoch)
+                        self.save_history()
+                        #self.pool.submit(self.push_history, epoch)
                         
                     else:
                         patience_counter += 1
@@ -228,19 +228,27 @@ class Trainer:
         torch.save(self.model, self.best_model_file_path, *args, **kwargs)
 
     def save_history(self):
-        history = {
-            'common_losses': self.val_common_losses,
-            'train_losses': self.train_losses,
-            'val_losses': self.val_losses,
-            'epoch_times': self.epoch_times
-        }
+        try:
+            self.printer.print(f"{self.model_name}: Attempting to save history to {self.history_file_path}")
+            history = {
+                'common_losses': self.val_common_losses,
+                'train_losses': self.train_losses,
+                'val_losses': self.val_losses,
+                'epoch_times': self.epoch_times
+            }
         
-        with open(self.history_file_path, 'w') as f:
-            json.dump(history, f, indent=4)
+            with open(self.history_file_path, 'w') as f:
+                json.dump(history, f, indent=4)
+            self.printer.print(f"{self.model_name}: Successfully saved history to {self.history_file_path}")
+        except Exception as e:
+            self.printer.print(f"{self.model_name}: ERROR saving history to {self.history_file_path}: {e}", color=Colors.RED)
+            # import traceback # Uncomment for detailed traceback
+            # self.printer.print(traceback.format_exc()) # Uncomment for detailed traceback
+
     def push_history(self, epoch):
-        os.system(f"git add {self.history_file_path}")
-        os.system(f"git commit -m 'Updated history for {self.model_name} at epoch {epoch}'")
-        os.system(f"git push origin main")
+        os.system(f"git add {self.history_file_path} >> '{self.model_top_dir}/gitlog.txt'")
+        os.system(f"git commit -m 'Updated history for {self.model_name} at epoch {epoch}' >> '{self.model_top_dir}/gitlog.txt'")
+        os.system(f"git push origin main >> '{self.model_top_dir}/gitlog.txt'")
         
     def plot_losses(self):
         plot_filepath = os.path.join(self.plot_path, f"{self.model_name}_losses.png")

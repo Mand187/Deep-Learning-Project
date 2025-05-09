@@ -204,7 +204,7 @@ def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES):
     
     train_loader = data.DataLoader(
         train_dataset, 
-        batch_size=BATCH_SIZE,
+        batch_size=TRAIN_BATCH_SIZE,
         shuffle=True, 
         num_workers=NUM_WORKERS, 
         prefetch_factor=NUM_BATCHES_TO_PREFETCH if NUM_WORKERS > 0 else None, 
@@ -213,7 +213,7 @@ def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES):
     
     test_loader = data.DataLoader(
         test_dataset, 
-        batch_size=BATCH_SIZE,
+        batch_size=TRAIN_BATCH_SIZE,
         shuffle=False, 
         num_workers=NUM_WORKERS, 
         prefetch_factor=NUM_BATCHES_TO_PREFETCH if NUM_WORKERS > 0 else None, 
