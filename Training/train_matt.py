@@ -50,7 +50,7 @@ class Trainer:
         self.wandb_run.config.update({"device": str(self.device)})
         
         
-        self.best_model_file_path = None
+        self.best_model_file_path = os.path.join(self.model_pickle_dir, f"{self.model_name}.pth")
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=10)
         self.model: FrameTransformer = model
         self.save_path = save_path
@@ -62,10 +62,15 @@ class Trainer:
         self.model.to(self.device)
         self.wandb_dir = os.path.join(self.save_path, 'wandb')
         os.makedirs(self.wandb_dir, exist_ok=True)
+        
 
         self.use_early_stopping = False
         self.patience = 10
         self.delta = 0.0
+        
+        self.model_artifact = wandb.Artifact(self.model_name, type="model")
+        self.model_artifact.add_file(self.best_model_file_path)
+        
         
         self.model_top_dir = os.path.join(self.save_path, self.model_name)
         os.makedirs(self.model_top_dir, exist_ok=True)
@@ -184,7 +189,8 @@ class Trainer:
 
                 # Update main progress bar
                 self.printer.print(f"\r{self.model_name}: Epoch {epoch}/{num_epochs} - Common Loss: {common_loss:.4f} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f} - Time: {epoch_time:.2f}s", end='')
-
+                    
+                self.save_history()
                 # --- Early Stopping ---
                 if self.use_early_stopping:
                     if val_loss < best_val_loss - self.delta:
@@ -192,7 +198,7 @@ class Trainer:
                         patience_counter = 0
                         self.printer.print(f"{self.model_name}: Best Loss at epoch {epoch}: {best_val_loss:.4f}")
                         self.pool.submit(self.save_model)
-                        self.save_history()
+                        self.wandb_run.log_artifact(self.model_artifact)
                         #self.pool.submit(self.push_history, epoch)
                         
                     else:
@@ -224,7 +230,6 @@ class Trainer:
 
     def save_model(self, *args, **kwargs):
         """Save the model to a file"""
-        self.best_model_file_path = os.path.join(self.model_pickle_dir, f"{self.model_name}.pth")
         torch.save(self.model, self.best_model_file_path, *args, **kwargs)
 
     def save_history(self):

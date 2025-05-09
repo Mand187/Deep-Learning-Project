@@ -231,6 +231,27 @@ class VehiclePositionDataset(data.Dataset):
             # but for debugging, re-raising can help identify the issue.
             raise
 
+def create_datasets(X, Y, num_features=NUM_INPUT_FEATURES, normalize=False, save=True, save_dir='Data/', dataset_name=''):
+    """Create datasets for training and testing"""
+    
+    
+    
+    # Split into train and test sets
+    X_Train, X_Test, Y_Train, Y_Test = train_test_split(X, Y, test_size=0.2, random_state=42)
+    
+    # Create datasets
+    train_dataset = VehiclePositionDataset(X_Train, Y_Train, num_features=num_features, normalize=normalize)
+    test_dataset = VehiclePositionDataset(X_Test, Y_Test, num_features=num_features, normalize=normalize)
+    if save:    
+        tld = os.path.join(save_dir, dataset_name)
+        os.makedirs(tld, exist_ok=True)
+        train_path = os.path.join(tld, 'train.pt')
+        test_path = os.path.join(tld, 'test.pt')
+        torch.save(train_dataset, train_path)   
+        torch.save(test_dataset, test_path)
+        print(f"Train dataset saved to {train_path}")
+        
+    return train_dataset, test_dataset
 
 def create_dataloaders(X, Y, num_features=NUM_INPUT_FEATURES, train_batch_size=TRAIN_BATCH_SIZE, test_batch_size=TEST_BATCH_SIZE):
     """Create train and test dataloaders"""
